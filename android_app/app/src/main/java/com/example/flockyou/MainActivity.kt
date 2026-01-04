@@ -16,6 +16,9 @@ import android.content.Intent
 import androidx.core.app.NotificationCompat
 import androidx.core.app.Person
 import androidx.core.graphics.drawable.IconCompat
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -30,11 +33,26 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import java.util.UUID
+import java.io.File
+import org.json.JSONArray
+import org.json.JSONObject
+import android.app.AlertDialog
 
-class MainActivity : AppCompatActivity() {
+data class DetectionInfo(
+    val mac: String,
+    var count: Int = 0,
+    var firstSeen: Long = 0,
+    var lastSeen: Long = 0,
+    var lastRssi: Int = 0,
+    var lastLat: Double? = null,
+    var lastLon: Double? = null
+)
+
+class MainActivity : AppCompatActivity(), LocationListener {
 
     private lateinit var statusText: TextView
     private lateinit var scanButton: Button
+    private lateinit var statsButton: Button
     private lateinit var logText: TextView
     private lateinit var rssiValue: TextView
     private lateinit var rssiProgressBar: android.widget.ProgressBar
@@ -43,6 +61,15 @@ class MainActivity : AppCompatActivity() {
     private var bluetoothGatt: BluetoothGatt? = null
     private var isScanning = false
     private val handler = Handler(Looper.getMainLooper())
+    
+    private var locationManager: LocationManager? = null
+    private var currentLocation: Location? = null
+    private val detections = mutableMapOf<String, DetectionInfo>()
+    
+    // Session stats
+    private val sessionStart = System.currentTimeMillis()
+    private val sessionDetections = mutableSetOf<String>()
+    private var sessionTotalCount = 0
 
     // UUIDs from the ESP32 code
     private val SERVICE_UUID = UUID.fromString("6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
@@ -138,20 +165,39 @@ class MainActivity : AppCompatActivity() {
         private fun handleCharacteristicChange(characteristic: BluetoothGattCharacteristic, value: ByteArray? = null) {
             if (characteristic.uuid == CHARACTERISTIC_TX_UUID) {
                 val data = value ?: characteristic.value
-                val message = String(data)
-                log("Received: $message")
+                val chunk = String(data)
                 
-                // Parse RSSI if present: [RSSI:-75]
-                val rssiRegex = "\\[RSSI:(-?\\d+)\\]".toRegex()
-                val matchResult = rssiRegex.find(message)
-                if (matchResult != null) {
-                    val rssi = matchResult.groupValues[1].toInt()
-                    updateRssi(rssi)
-                }
+                dataBuffer.append(chunk)
+                
+                // Check for delimiter (newline)
+                var delimiterIndex = dataBuffer.indexOf("\n")
+                while (delimiterIndex != -1) {
+                    val completeMessage = dataBuffer.substring(0, delimiterIndex)
+                    dataBuffer.delete(0, delimiterIndex + 1) // Remove processed message + delimiter
+                    
+                    // Try to parse as JSON first
+                    if (completeMessage.trim().startsWith("{")) {
+                        runOnUiThread { processJsonMessage(completeMessage) }
+                    } else {
+                        // Fallback for legacy plain text messages
+                        log("Received: $completeMessage")
+                        
+                        // Parse RSSI if present: [RSSI:-75]
+                        val rssiRegex = "\\[RSSI:(-?\\d+)\\]".toRegex()
+                        val matchResult = rssiRegex.find(completeMessage)
+                        if (matchResult != null) {
+                            val rssi = matchResult.groupValues[1].toInt()
+                            updateRssi(rssi)
+                        }
 
-                // Only send notification for actual detections, ignore heartbeats
-                if (message.startsWith("FLOCK DETECTED!")) {
-                    sendNotification(message)
+                        // Only send notification for actual detections, ignore heartbeats
+                        if (completeMessage.startsWith("FLOCK DETECTED!")) {
+                            sendNotification(completeMessage)
+                        }
+                    }
+                    
+                    // Check for next delimiter
+                    delimiterIndex = dataBuffer.indexOf("\n")
                 }
             }
         }
@@ -187,21 +233,90 @@ class MainActivity : AppCompatActivity() {
         }
 
     private val CHANNEL_ID = "flock_notifications"
+    private val dataBuffer = StringBuilder()
+
+    private fun processJsonMessage(jsonStr: String) {
+        try {
+            val json = org.json.JSONObject(jsonStr)
+            
+            // Check for heartbeat type first
+            val type = json.optString("type", "")
+            val protocol = json.optString("protocol", "")
+            val rssi = json.optInt("rssi", -100)
+            
+            // Update RSSI UI for all message types that have it
+            if (rssi != -100) {
+                updateRssi(rssi)
+            }
+
+            if (type == "heartbeat") {
+                 log("Heartbeat: RSSI $rssi")
+            } else {
+                // Handle detection
+                val mac = json.optString("mac_address", "")
+                if (mac.isNotEmpty()) {
+                    val info = detections.getOrPut(mac) { 
+                        DetectionInfo(mac, firstSeen = System.currentTimeMillis()) 
+                    }
+                    info.count++
+                    info.lastSeen = System.currentTimeMillis()
+                    info.lastRssi = rssi
+                    
+                    // Update session stats
+                    sessionDetections.add(mac)
+                    sessionTotalCount++
+                    
+                    // Update with current GPS if available
+                    currentLocation?.let {
+                        info.lastLat = it.latitude
+                        info.lastLon = it.longitude
+                    }
+                    
+                    val countStr = "Count: ${info.count}"
+                    val locStr = if (info.lastLat != null) "Loc: ${String.format("%.5f, %.5f", info.lastLat, info.lastLon)}" else "Loc: N/A"
+                    
+                    if (protocol == "wifi") {
+                        val ssid = json.optString("ssid", "Unknown")
+                        val threatScore = json.optInt("threat_score", 0)
+                        val msg = "WiFi Threat: $ssid ($mac)\nScore: $threatScore\n$countStr\n$locStr"
+                        log(msg)
+                        sendNotification(msg)
+                    } else if (protocol == "bluetooth_le") {
+                        val name = json.optString("device_name", "Unknown")
+                        val threatScore = json.optInt("threat_score", 0)
+                        val msg = "BLE Threat: $name ($mac)\nScore: $threatScore\n$countStr\n$locStr"
+                        log(msg)
+                        sendNotification(msg)
+                    } else {
+                        log("Unknown JSON message: $jsonStr")
+                    }
+                }
+            }
+        } catch (e: org.json.JSONException) {
+            log("Error parsing JSON: $jsonStr")
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
         createNotificationChannel()
+        loadDetections()
 
         statusText = findViewById(R.id.statusText)
         scanButton = findViewById(R.id.scanButton)
+        statsButton = findViewById(R.id.statsButton)
+        statsButton.setOnClickListener { showStats() }
+        
         logText = findViewById(R.id.logText)
         rssiValue = findViewById(R.id.rssiValue)
         rssiProgressBar = findViewById(R.id.rssiProgressBar)
 
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         bluetoothAdapter = bluetoothManager.adapter
+        
+        locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
 
         scanButton.setOnClickListener {
             if (isScanning) {
@@ -212,8 +327,21 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onPause() {
+        super.onPause()
+        saveDetections()
+    }
+
     private fun checkPermissionsAndScan() {
         val permissionsToRequest = mutableListOf<String>()
+
+        // Always request Location for GPS tagging
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            permissionsToRequest.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            permissionsToRequest.add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
@@ -221,10 +349,6 @@ class MainActivity : AppCompatActivity() {
             }
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
                 permissionsToRequest.add(Manifest.permission.BLUETOOTH_CONNECT)
-            }
-        } else {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                permissionsToRequest.add(Manifest.permission.ACCESS_FINE_LOCATION)
             }
         }
 
@@ -272,6 +396,8 @@ class MainActivity : AppCompatActivity() {
         updateStatus("Scanning...")
         scanButton.text = "Stop Scan"
         
+        startLocationUpdates()
+        
         // Scan for either the UUID or the Name
         scanner.startScan(listOf(filter, nameFilter), settings, scanCallback)
         
@@ -287,6 +413,8 @@ class MainActivity : AppCompatActivity() {
         
         val scanner = bluetoothAdapter?.bluetoothLeScanner
         scanner?.stopScan(scanCallback)
+        
+        stopLocationUpdates()
         
         isScanning = false
         updateStatus("Disconnected")
@@ -372,6 +500,115 @@ class MainActivity : AppCompatActivity() {
         }
     }
     
+    @SuppressLint("MissingPermission")
+    private fun startLocationUpdates() {
+        try {
+            locationManager?.requestLocationUpdates(
+                LocationManager.GPS_PROVIDER,
+                2000L, // 2 seconds
+                5f,    // 5 meters
+                this
+            )
+            // Also try network provider for faster fix
+            locationManager?.requestLocationUpdates(
+                LocationManager.NETWORK_PROVIDER,
+                2000L,
+                5f,
+                this
+            )
+            log("Location updates started")
+        } catch (e: Exception) {
+            log("Error starting location updates: ${e.message}")
+        }
+    }
+
+    private fun stopLocationUpdates() {
+        locationManager?.removeUpdates(this)
+        log("Location updates stopped")
+    }
+
+    override fun onLocationChanged(location: Location) {
+        currentLocation = location
+        // Optional: log("Location updated: ${location.latitude}, ${location.longitude}")
+    }
+
+    override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+    override fun onProviderEnabled(provider: String) {}
+    override fun onProviderDisabled(provider: String) {}
+    
+    private fun loadDetections() {
+        try {
+            val file = File(filesDir, "detections.json")
+            if (file.exists()) {
+                val jsonStr = file.readText()
+                val jsonArray = JSONArray(jsonStr)
+                for (i in 0 until jsonArray.length()) {
+                    val obj = jsonArray.getJSONObject(i)
+                    val mac = obj.getString("mac")
+                    val info = DetectionInfo(
+                        mac = mac,
+                        count = obj.optInt("count", 0),
+                        firstSeen = obj.optLong("firstSeen", 0),
+                        lastSeen = obj.optLong("lastSeen", 0),
+                        lastRssi = obj.optInt("lastRssi", 0),
+                        lastLat = if (obj.has("lastLat")) obj.getDouble("lastLat") else null,
+                        lastLon = if (obj.has("lastLon")) obj.getDouble("lastLon") else null
+                    )
+                    detections[mac] = info
+                }
+                log("Loaded ${detections.size} detections from storage")
+            }
+        } catch (e: Exception) {
+            log("Error loading detections: ${e.message}")
+        }
+    }
+
+    private fun saveDetections() {
+        try {
+            val jsonArray = JSONArray()
+            for (info in detections.values) {
+                val obj = JSONObject()
+                obj.put("mac", info.mac)
+                obj.put("count", info.count)
+                obj.put("firstSeen", info.firstSeen)
+                obj.put("lastSeen", info.lastSeen)
+                obj.put("lastRssi", info.lastRssi)
+                info.lastLat?.let { obj.put("lastLat", it) }
+                info.lastLon?.let { obj.put("lastLon", it) }
+                jsonArray.put(obj)
+            }
+            val file = File(filesDir, "detections.json")
+            file.writeText(jsonArray.toString())
+        } catch (e: Exception) {
+            log("Error saving detections: ${e.message}")
+        }
+    }
+
+    private fun showStats() {
+        val sessionDuration = (System.currentTimeMillis() - sessionStart) / 1000
+        val sessionDurationStr = String.format("%02d:%02d:%02d", 
+            sessionDuration / 3600, (sessionDuration % 3600) / 60, sessionDuration % 60)
+            
+        val allTimeTotalCount = detections.values.sumOf { it.count }
+        
+        val msg = """
+            SESSION STATS
+            Duration: $sessionDurationStr
+            Unique Devices: ${sessionDetections.size}
+            Total Detections: $sessionTotalCount
+            
+            ALL TIME STATS
+            Unique Devices: ${detections.size}
+            Total Detections: $allTimeTotalCount
+        """.trimIndent()
+        
+        AlertDialog.Builder(this)
+            .setTitle("Detection Statistics")
+            .setMessage(msg)
+            .setPositiveButton("OK", null)
+            .show()
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         if (ActivityCompat.checkSelfPermission(

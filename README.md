@@ -22,10 +22,15 @@ Flock You is an advanced detection system designed to identify Flock Safety surv
 
 ### Android App Integration (NEW)
 - **Custom Companion App**: Dedicated Android application for managing detections
+- **Rich Data Notifications**: Displays detailed threat info including Device Type, MAC Address, and Threat Score
+- **GPS Tagging**: Automatically tags every detection with your phone's current GPS coordinates
+- **Detection Counting**: Tracks how many times each unique device has been seen
+- **Persistent Storage**: Detections are saved locally, preserving history across app restarts
+- **Session & Lifetime Stats**: View detailed statistics for the current session and all-time history
 - **Proximity Radar**: Visual RSSI graph (Blue/Orange/Red) to track distance to the device
 - **Android Auto Support**: Notifications appear directly on your car's dashboard
 - **Smart Filtering**: Ignores heartbeat messages, alerting only on confirmed detections
-- **Background Service**: Runs reliably in the background for continuous protection
+- **JSON Protocol**: Uses robust chunked JSON transmission for reliable data transfer over BLE
 
 ### Comprehensive Output
 - **JSON Detection Data**: Structured output with timestamps, RSSI, MAC addresses

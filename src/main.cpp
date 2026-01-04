@@ -154,21 +154,34 @@ class MyServerCallbacks: public NimBLEServerCallbacks {
 
 void send_notification(String message) {
     if (deviceConnected && pTxCharacteristic != NULL) {
-        pTxCharacteristic->setValue(message);
-        pTxCharacteristic->notify();
-        printf("Notification sent: %s\n", message.c_str());
+        // Append newline as delimiter
+        message += "\n";
+        
+        size_t length = message.length();
+        const char* data = message.c_str();
+        size_t offset = 0;
+        
+        // Use a safe chunk size (20 bytes is standard BLE MTU safe limit)
+        // We could negotiate higher, but 20 ensures compatibility
+        const size_t chunk_size = 20;
+        
+        while (offset < length) {
+            size_t len = (length - offset) > chunk_size ? chunk_size : (length - offset);
+            std::string chunk(data + offset, len);
+            pTxCharacteristic->setValue(chunk);
+            pTxCharacteristic->notify();
+            offset += len;
+            delay(5); // Small delay to prevent congestion
+        }
+        printf("Notification sent (chunked): %d bytes\n", length);
     }
 }
 
 void flock_detected_notification(String details)
 {
+    // This function is now deprecated in favor of sending full JSON
+    // But we keep it for the heartbeat logic
     printf("FLOCK SAFETY DEVICE DETECTED!\n");
-    send_notification("FLOCK DETECTED! " + details);
-    
-    // Mark device as in range and start heartbeat tracking
-    device_in_range = true;
-    last_detection_time = millis();
-    last_heartbeat = millis();
 }
 
 // ============================================================================
@@ -243,6 +256,9 @@ void output_wifi_detection_json(const char* ssid, const uint8_t* mac, int rssi, 
     String json_output;
     serializeJson(doc, json_output);
     Serial.println(json_output);
+    
+    // Send full JSON over BLE
+    send_notification(json_output);
 }
 
 void output_ble_detection_json(const char* mac, const char* name, int rssi, const char* detection_method)
@@ -328,6 +344,9 @@ void output_ble_detection_json(const char* mac, const char* name, int rssi, cons
     String json_output;
     serializeJson(doc, json_output);
     Serial.println(json_output);
+    
+    // Send full JSON over BLE
+    send_notification(json_output);
 }
 
 // ============================================================================
@@ -742,7 +761,16 @@ void loop()
         
         // Check if 10 seconds have passed since last heartbeat
         if (now - last_heartbeat >= 10000) {
-            send_notification("Still Detected [RSSI:" + String(last_rssi) + "]");
+            // Send heartbeat as JSON
+            DynamicJsonDocument doc(256);
+            doc["type"] = "heartbeat";
+            doc["message"] = "Still Detected";
+            doc["rssi"] = last_rssi;
+            doc["timestamp"] = millis();
+            String json_output;
+            serializeJson(doc, json_output);
+            send_notification(json_output);
+            
             last_heartbeat = now;
         }
         
