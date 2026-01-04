@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">Flock You Client</string>
+    <string name="scan_button">Scan for Devices</string>
+    <string name="status_disconnected">Disconnected</string>
+    <string name="status_scanning">Scanning...</string>
+    <string name="status_connecting">Connecting...</string>
+    <string name="status_connected">Connected</string>
+    <string name="permission_rationale">This app needs Bluetooth and Location permissions to find and connect to the Flock Detector device.</string>
+</resources>

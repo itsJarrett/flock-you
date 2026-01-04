@@ -3,6 +3,9 @@
 #include <NimBLEDevice.h>
 #include <NimBLEScan.h>
 #include <NimBLEAdvertisedDevice.h>
+#include <NimBLEServer.h>
+#include <NimBLEUtils.h>
+#include <NimBLE2902.h>
 #include <ArduinoJson.h>
 #include <string.h>
 #include <ctype.h>
@@ -15,17 +18,10 @@
 // CONFIGURATION
 // ============================================================================
 
-// Hardware Configuration
-#define BUZZER_PIN 3  // GPIO3 (D2) - PWM capable pin on Xiao ESP32 S3
-
-// Audio Configuration
-#define LOW_FREQ 200      // Boot sequence - low pitch
-#define HIGH_FREQ 800     // Boot sequence - high pitch & detection alert
-#define DETECT_FREQ 1000  // Detection alert - high pitch (faster beeps)
-#define HEARTBEAT_FREQ 600 // Heartbeat pulse frequency
-#define BOOT_BEEP_DURATION 300   // Boot beep duration
-#define DETECT_BEEP_DURATION 150 // Detection beep duration (faster)
-#define HEARTBEAT_DURATION 100   // Short heartbeat pulse
+// BLE Notification Configuration
+#define SERVICE_UUID           "6E400001-B5A3-F393-E0A9-E50E24DCCA9E" // UART Service
+#define CHARACTERISTIC_UUID_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
+#define CHARACTERISTIC_UUID_TX "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
 
 // WiFi Promiscuous Mode Configuration
 #define MAX_CHANNEL 13
@@ -134,50 +130,44 @@ static bool device_in_range = false;
 static unsigned long last_detection_time = 0;
 static unsigned long last_heartbeat = 0;
 static NimBLEScan* pBLEScan;
-
-
+static NimBLEServer* pServer = NULL;
+static NimBLECharacteristic* pTxCharacteristic = NULL;
+static bool deviceConnected = false;
 
 // ============================================================================
-// AUDIO SYSTEM
+// BLE NOTIFICATION SYSTEM
 // ============================================================================
 
-void beep(int frequency, int duration_ms)
-{
-    tone(BUZZER_PIN, frequency, duration_ms);
-    delay(duration_ms + 50);
+class MyServerCallbacks: public NimBLEServerCallbacks {
+    void onConnect(NimBLEServer* pServer) {
+        deviceConnected = true;
+        printf("Client connected\n");
+    };
+
+    void onDisconnect(NimBLEServer* pServer) {
+        deviceConnected = false;
+        printf("Client disconnected\n");
+        pServer->startAdvertising(); // Restart advertising
+    }
+};
+
+void send_notification(String message) {
+    if (deviceConnected && pTxCharacteristic != NULL) {
+        pTxCharacteristic->setValue(message);
+        pTxCharacteristic->notify();
+        printf("Notification sent: %s\n", message.c_str());
+    }
 }
 
-void boot_beep_sequence()
-{
-    printf("Initializing audio system...\n");
-    printf("Playing boot sequence: Low -> High pitch\n");
-    beep(LOW_FREQ, BOOT_BEEP_DURATION);
-    beep(HIGH_FREQ, BOOT_BEEP_DURATION);
-    printf("Audio system ready\n\n");
-}
-
-void flock_detected_beep_sequence()
+void flock_detected_notification(String details)
 {
     printf("FLOCK SAFETY DEVICE DETECTED!\n");
-    printf("Playing alert sequence: 3 fast high-pitch beeps\n");
-    for (int i = 0; i < 3; i++) {
-        beep(DETECT_FREQ, DETECT_BEEP_DURATION);
-        if (i < 2) delay(50); // Short gap between beeps
-    }
-    printf("Detection complete - device identified!\n\n");
+    send_notification("FLOCK DETECTED! " + details);
     
     // Mark device as in range and start heartbeat tracking
     device_in_range = true;
     last_detection_time = millis();
     last_heartbeat = millis();
-}
-
-void heartbeat_pulse()
-{
-    printf("Heartbeat: Device still in range\n");
-    beep(HEARTBEAT_FREQ, HEARTBEAT_DURATION);
-    delay(100);
-    beep(HEARTBEAT_FREQ, HEARTBEAT_DURATION);
 }
 
 // ============================================================================
@@ -529,7 +519,7 @@ void wifi_sniffer_packet_handler(void* buff, wifi_promiscuous_pkt_type_t type)
         
         if (!triggered) {
             triggered = true;
-            flock_detected_beep_sequence();
+            flock_detected_notification(String("WiFi: ") + ssid);
         }
         // Always update detection time for heartbeat tracking
         last_detection_time = millis();
@@ -543,7 +533,10 @@ void wifi_sniffer_packet_handler(void* buff, wifi_promiscuous_pkt_type_t type)
         
         if (!triggered) {
             triggered = true;
-            flock_detected_beep_sequence();
+            char mac_str[18];
+            snprintf(mac_str, sizeof(mac_str), "%02x:%02x:%02x:%02x:%02x:%02x", 
+                     hdr->addr2[0], hdr->addr2[1], hdr->addr2[2], hdr->addr2[3], hdr->addr2[4], hdr->addr2[5]);
+            flock_detected_notification(String("WiFi MAC: ") + mac_str);
         }
         // Always update detection time for heartbeat tracking
         last_detection_time = millis();
@@ -575,7 +568,7 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
             output_ble_detection_json(addrStr.c_str(), name.c_str(), rssi, "mac_prefix");
             if (!triggered) {
                 triggered = true;
-                flock_detected_beep_sequence();
+                flock_detected_notification(String("BLE MAC: ") + addrStr.c_str());
             }
             // Always update detection time for heartbeat tracking
             last_detection_time = millis();
@@ -587,7 +580,7 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
             output_ble_detection_json(addrStr.c_str(), name.c_str(), rssi, "device_name");
             if (!triggered) {
                 triggered = true;
-                flock_detected_beep_sequence();
+                flock_detected_notification(String("BLE Name: ") + name.c_str());
             }
             // Always update detection time for heartbeat tracking
             last_detection_time = millis();
@@ -638,7 +631,7 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
             
             if (!triggered) {
                 triggered = true;
-                flock_detected_beep_sequence();
+                flock_detected_notification(String("Raven: ") + service_desc);
             }
             // Always update detection time for heartbeat tracking
             last_detection_time = millis();
@@ -674,11 +667,6 @@ void setup()
     Serial.begin(115200);
     delay(1000);
     
-    // Initialize buzzer
-    pinMode(BUZZER_PIN, OUTPUT);
-    digitalWrite(BUZZER_PIN, LOW);
-    boot_beep_sequence();
-    
     printf("Starting Flock Squawk Enhanced Detection System...\n\n");
     
     // Initialize WiFi in promiscuous mode
@@ -694,8 +682,37 @@ void setup()
     printf("Monitoring probe requests and beacons...\n");
     
     // Initialize BLE
-    printf("Initializing BLE scanner...\n");
-    NimBLEDevice::init("");
+    printf("Initializing BLE scanner and server...\n");
+    NimBLEDevice::init("FlockDetector");
+    
+    // Create the BLE Server
+    pServer = NimBLEDevice::createServer();
+    pServer->setCallbacks(new MyServerCallbacks());
+
+    // Create the BLE Service
+    NimBLEService *pService = pServer->createService(SERVICE_UUID);
+
+    // Create a BLE Characteristic
+    pTxCharacteristic = pService->createCharacteristic(
+                                        CHARACTERISTIC_UUID_TX,
+                                        NIMBLE_PROPERTY::NOTIFY
+                                    );
+                                    
+    NimBLECharacteristic * pRxCharacteristic = pService->createCharacteristic(
+                                             CHARACTERISTIC_UUID_RX,
+                                             NIMBLE_PROPERTY::WRITE
+                                         );
+
+    // Start the service
+    pService->start();
+
+    // Start advertising
+    NimBLEAdvertising *pAdvertising = NimBLEDevice::getAdvertising();
+    pAdvertising->addServiceUUID(SERVICE_UUID);
+    pAdvertising->setScanResponse(true);
+    pAdvertising->start();
+    printf("BLE Advertising started. Connect to 'FlockDetector' to receive notifications.\n");
+
     pBLEScan = NimBLEDevice::getScan();
     pBLEScan->setAdvertisedDeviceCallbacks(new AdvertisedDeviceCallbacks());
     pBLEScan->setActiveScan(true);
@@ -719,13 +736,14 @@ void loop()
         
         // Check if 10 seconds have passed since last heartbeat
         if (now - last_heartbeat >= 10000) {
-            heartbeat_pulse();
+            send_notification("Still Detected");
             last_heartbeat = now;
         }
         
         // Check if device has gone out of range (no detection for 30 seconds)
         if (now - last_detection_time >= 30000) {
             printf("Device out of range - stopping heartbeat\n");
+            send_notification("Device out of range");
             device_in_range = false;
             triggered = false; // Allow new detections
         }

@@ -4,6 +4,8 @@
 
 **Professional surveillance camera detection for the Oui-Spy device available at [colonelpanic.tech](https://colonelpanic.tech)**
 
+> **Note:** This is a fork of the original project, modified to replace the buzzer with BLE notifications for phoneintegration.
+
 ## Overview
 
 Flock You is an advanced detection system designed to identify Flock Safety surveillance cameras, Raven gunshot detectors, and similar surveillance devices using multiple detection methodologies. Built for the Xiao ESP32 S3 microcontroller, it provides real-time monitoring with audio alerts and comprehensive JSON output. The system now includes specialized BLE service UUID fingerprinting for detecting SoundThinking/ShotSpotter Raven acoustic surveillance devices.
@@ -18,11 +20,12 @@ Flock You is an advanced detection system designed to identify Flock Safety surv
 - **Device Name Pattern Matching**: Detects BLE devices by advertised names
 - **BLE Service UUID Detection**: Identifies Raven gunshot detectors by service UUIDs (NEW)
 
-### Audio Alert System
-- **Boot Sequence**: 2 beeps (low pitch → high pitch) on startup
-- **Detection Alert**: 3 fast high-pitch beeps when device detected
-- **Heartbeat Pulse**: 2 beeps every 10 seconds while device remains in range
-- **Range Monitoring**: Automatic detection of device leaving range
+### BLE Notification System
+- **Phone Integration**: Connects to your phone via Bluetooth Low Energy
+- **Real-time Alerts**: Sends text notifications immediately upon detection
+- **Heartbeat Updates**: "Still Detected" messages every 10 seconds while in range
+- **Range Monitoring**: "Device out of range" notification when threat leaves area
+- **Android Auto Support**: Notifications appear on car display (via phone connection)
 
 ### Comprehensive Output
 - **JSON Detection Data**: Structured output with timestamps, RSSI, MAC addresses
@@ -37,20 +40,11 @@ Flock You is an advanced detection system designed to identify Flock Safety surv
 ### Option 1: Oui-Spy Device (Available at colonelpanic.tech)
 - **Microcontroller**: Xiao ESP32 S3
 - **Wireless**: Dual WiFi/BLE scanning capabilities
-- **Audio**: Built-in buzzer system
 - **Connectivity**: USB-C for programming and power
 
 ### Option 2: Standard Xiao ESP32 S3 Setup
 - **Microcontroller**: Xiao ESP32 S3 board
-- **Buzzer**: 3V buzzer connected to GPIO3 (D2)
 - **Power**: USB-C cable for programming and power
-
-### Wiring for Standard Setup
-```
-Xiao ESP32 S3    Buzzer
-GPIO3 (D2)  ---> Positive (+)
-GND         ---> Negative (-)
-```
 
 ## Installation
 
@@ -168,11 +162,11 @@ When a Raven device is detected, the system provides:
 - **Interval**: 100ms scan intervals
 - **Window**: 99ms scan windows
 
-### Audio System
-- **Boot Sequence**: 200Hz → 800Hz (300ms each)
-- **Detection Alert**: 1000Hz × 3 beeps (150ms each)
-- **Heartbeat**: 600Hz × 2 beeps (100ms each, 100ms gap)
-- **Frequency**: Every 10 seconds while device in range
+### BLE Notification System
+- **Service UUID**: `6E400001-B5A3-F393-E0A9-E50E24DCCA9E` (Nordic UART)
+- **TX Characteristic**: `6E400003-B5A3-F393-E0A9-E50E24DCCA9E` (Notify)
+- **RX Characteristic**: `6E400002-B5A3-F393-E0A9-E50E24DCCA9E` (Write)
+- **Notification Rate**: Immediate on detection, 10s heartbeat
 
 ### JSON Output Format
 
@@ -231,18 +225,25 @@ When a Raven device is detected, the system provides:
 
 ### Startup Sequence
 1. **Power on** the Oui-Spy device
-2. **Listen for boot beeps** (low → high pitch)
+2. **Connect your phone** via BLE (see below)
 3. **Start the web server**: `python flockyou.py` (from the `api` directory)
 4. **Open the dashboard**: Navigate to `http://localhost:5000`
 5. **Connect devices**: Use the web interface to connect your Flock You device and GPS
 6. **System ready** when "hunting for Flock Safety devices" appears in the serial terminal
 
+### Connecting to Phone / Android Auto
+1. Install a BLE Terminal app (e.g., **Serial Bluetooth Terminal** for Android).
+2. Open the app and search for BLE devices.
+3. Connect to **"FlockDetector"**.
+4. Enable **Background Notifications** in the app settings.
+5. **Android Auto**: If your phone is connected to your car, the notifications should appear on your car's display automatically.
+
 ### Detection Monitoring
+- **Phone Notifications**: Instant text alerts on your phone/watch/car
 - **Web Dashboard**: Real-time detection display at `http://localhost:5000`
 - **Serial Terminal**: Live device output in the web interface
-- **Audio Alerts**: Immediate notification of detections (device-side)
-- **Heartbeat**: Continuous monitoring while devices in range
-- **Range Tracking**: Automatic detection of device departure
+- **Heartbeat**: Continuous "Still Detected" updates while devices in range
+- **Range Tracking**: "Device out of range" notification
 - **Export Options**: Download detections as CSV or KML files
 
 ### Channel Information
@@ -296,7 +297,7 @@ When a Raven device is detected, the system provides:
 ### Common Issues
 1. **Web Server Won't Start**: Check Python version (3.8+) and virtual environment setup
 2. **No Serial Output**: Check USB connection and device port selection in web interface
-3. **No Audio**: Verify buzzer connection to GPIO3
+3. **No Notifications**: Ensure phone is connected to "FlockDetector" and app has notification permissions
 4. **No Detections**: Ensure device is in range and scanning is active
 5. **False Alerts**: Review detection patterns and adjust if needed
 6. **Connection Issues**: Verify device is connected via the web interface controls
