@@ -302,7 +302,6 @@ class MainActivity : AppCompatActivity(), LocationListener {
         setContentView(R.layout.activity_main)
 
         createNotificationChannel()
-        loadDetections()
 
         statusText = findViewById(R.id.statusText)
         scanButton = findViewById(R.id.scanButton)
@@ -317,6 +316,9 @@ class MainActivity : AppCompatActivity(), LocationListener {
         bluetoothAdapter = bluetoothManager.adapter
         
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        
+        // Load detections after UI is initialized because it logs to logText
+        loadDetections()
 
         scanButton.setOnClickListener {
             if (isScanning) {
