@@ -129,6 +129,7 @@ static bool triggered = false;
 static bool device_in_range = false;
 static unsigned long last_detection_time = 0;
 static unsigned long last_heartbeat = 0;
+static int last_rssi = -100;
 static NimBLEScan* pBLEScan;
 static NimBLEServer* pServer = NULL;
 static NimBLECharacteristic* pTxCharacteristic = NULL;
@@ -519,10 +520,11 @@ void wifi_sniffer_packet_handler(void* buff, wifi_promiscuous_pkt_type_t type)
         
         if (!triggered) {
             triggered = true;
-            flock_detected_notification(String("WiFi: ") + ssid);
+            flock_detected_notification(String("WiFi: ") + ssid + " [RSSI:" + String(ppkt->rx_ctrl.rssi) + "]");
         }
         // Always update detection time for heartbeat tracking
         last_detection_time = millis();
+        last_rssi = ppkt->rx_ctrl.rssi;
         return;
     }
     
@@ -536,10 +538,11 @@ void wifi_sniffer_packet_handler(void* buff, wifi_promiscuous_pkt_type_t type)
             char mac_str[18];
             snprintf(mac_str, sizeof(mac_str), "%02x:%02x:%02x:%02x:%02x:%02x", 
                      hdr->addr2[0], hdr->addr2[1], hdr->addr2[2], hdr->addr2[3], hdr->addr2[4], hdr->addr2[5]);
-            flock_detected_notification(String("WiFi MAC: ") + mac_str);
+            flock_detected_notification(String("WiFi MAC: ") + mac_str + " [RSSI:" + String(ppkt->rx_ctrl.rssi) + "]");
         }
         // Always update detection time for heartbeat tracking
         last_detection_time = millis();
+        last_rssi = ppkt->rx_ctrl.rssi;
         return;
     }
 }
@@ -568,10 +571,11 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
             output_ble_detection_json(addrStr.c_str(), name.c_str(), rssi, "mac_prefix");
             if (!triggered) {
                 triggered = true;
-                flock_detected_notification(String("BLE MAC: ") + addrStr.c_str());
+                flock_detected_notification(String("BLE MAC: ") + addrStr.c_str() + " [RSSI:" + String(rssi) + "]");
             }
             // Always update detection time for heartbeat tracking
             last_detection_time = millis();
+            last_rssi = rssi;
             return;
         }
         
@@ -580,10 +584,11 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
             output_ble_detection_json(addrStr.c_str(), name.c_str(), rssi, "device_name");
             if (!triggered) {
                 triggered = true;
-                flock_detected_notification(String("BLE Name: ") + name.c_str());
+                flock_detected_notification(String("BLE Name: ") + name.c_str() + " [RSSI:" + String(rssi) + "]");
             }
             // Always update detection time for heartbeat tracking
             last_detection_time = millis();
+            last_rssi = rssi;
             return;
         }
         
@@ -631,10 +636,11 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
             
             if (!triggered) {
                 triggered = true;
-                flock_detected_notification(String("Raven: ") + service_desc);
+                flock_detected_notification(String("Raven: ") + service_desc + " [RSSI:" + String(rssi) + "]");
             }
             // Always update detection time for heartbeat tracking
             last_detection_time = millis();
+            last_rssi = rssi;
             return;
         }
     }
@@ -736,7 +742,7 @@ void loop()
         
         // Check if 10 seconds have passed since last heartbeat
         if (now - last_heartbeat >= 10000) {
-            send_notification("Still Detected");
+            send_notification("Still Detected [RSSI:" + String(last_rssi) + "]");
             last_heartbeat = now;
         }
         

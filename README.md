@@ -4,11 +4,11 @@
 
 **Professional surveillance camera detection for the Oui-Spy device available at [colonelpanic.tech](https://colonelpanic.tech)**
 
-> **Note:** This is a fork of the original project, modified to replace the buzzer with BLE notifications for phoneintegration.
+> **Note:** This is a fork of the original project, modified to replace the buzzer with a custom Android App for notifications, proximity tracking, and Android Auto integration.
 
 ## Overview
 
-Flock You is an advanced detection system designed to identify Flock Safety surveillance cameras, Raven gunshot detectors, and similar surveillance devices using multiple detection methodologies. Built for the Xiao ESP32 S3 microcontroller, it provides real-time monitoring with audio alerts and comprehensive JSON output. The system now includes specialized BLE service UUID fingerprinting for detecting SoundThinking/ShotSpotter Raven acoustic surveillance devices.
+Flock You is an advanced detection system designed to identify Flock Safety surveillance cameras, Raven gunshot detectors, and similar surveillance devices using multiple detection methodologies. Built for the Xiao ESP32 S3 and Waveshare ESP32-S3 SuperMini, it provides real-time monitoring with a companion Android app for alerts and signal tracking.
 
 ## Features
 
@@ -20,12 +20,12 @@ Flock You is an advanced detection system designed to identify Flock Safety surv
 - **Device Name Pattern Matching**: Detects BLE devices by advertised names
 - **BLE Service UUID Detection**: Identifies Raven gunshot detectors by service UUIDs (NEW)
 
-### BLE Notification System
-- **Phone Integration**: Connects to your phone via Bluetooth Low Energy
-- **Real-time Alerts**: Sends text notifications immediately upon detection
-- **Heartbeat Updates**: "Still Detected" messages every 10 seconds while in range
-- **Range Monitoring**: "Device out of range" notification when threat leaves area
-- **Android Auto Support**: Notifications appear on car display (via phone connection)
+### Android App Integration (NEW)
+- **Custom Companion App**: Dedicated Android application for managing detections
+- **Proximity Radar**: Visual RSSI graph (Blue/Orange/Red) to track distance to the device
+- **Android Auto Support**: Notifications appear directly on your car's dashboard
+- **Smart Filtering**: Ignores heartbeat messages, alerting only on confirmed detections
+- **Background Service**: Runs reliably in the background for continuous protection
 
 ### Comprehensive Output
 - **JSON Detection Data**: Structured output with timestamps, RSSI, MAC addresses
@@ -46,27 +46,40 @@ Flock You is an advanced detection system designed to identify Flock Safety surv
 - **Microcontroller**: Xiao ESP32 S3 board
 - **Power**: USB-C cable for programming and power
 
+### Option 3: Waveshare ESP32-S3 SuperMini
+- **Microcontroller**: Waveshare ESP32-S3 SuperMini
+- **Configuration**: Use `[env:esp32-s3-supermini]` in `platformio.ini`
+
 ## Installation
 
-### Prerequisites
-- PlatformIO IDE or PlatformIO Core
-- Python 3.8+ (for web interface)
-- USB-C cable for programming
-- Oui-Spy device from [colonelpanic.tech](https://colonelpanic.tech)
-
-### Setup Instructions
+### Firmware Setup
 1. **Clone the repository**:
    ```bash
    git clone <repository-url>
    cd flock-you
    ```
 
-2. **Connect your Oui-Spy device** via USB-C
+2. **Connect your device** via USB-C
 
 3. **Flash the firmware**:
+   - For Xiao ESP32 S3: `pio run -e xiao_esp32s3 --target upload`
+   - For Waveshare SuperMini: `pio run -e esp32-s3-supermini --target upload`
+
+### Android App Setup
+The companion app is located in the `android_app/` directory.
+
+1. **Build via Command Line**:
    ```bash
-   pio run --target upload
+   cd android_app
+   chmod +x gradlew
+   ./gradlew assembleDebug
    ```
+   The APK will be at: `android_app/app/build/outputs/apk/debug/app-debug.apk`
+
+2. **Build via Android Studio**:
+   - Open the `android_app` folder in Android Studio.
+   - Connect your phone.
+   - Click **Run**.
 
 4. **Set up the web interface**:
    ```bash
@@ -166,6 +179,7 @@ When a Raven device is detected, the system provides:
 - **Service UUID**: `6E400001-B5A3-F393-E0A9-E50E24DCCA9E` (Nordic UART)
 - **TX Characteristic**: `6E400003-B5A3-F393-E0A9-E50E24DCCA9E` (Notify)
 - **RX Characteristic**: `6E400002-B5A3-F393-E0A9-E50E24DCCA9E` (Write)
+- **Data Format**: `FLOCK DETECTED! [Details] [RSSI:-XX]`
 - **Notification Rate**: Immediate on detection, 10s heartbeat
 
 ### JSON Output Format
@@ -225,18 +239,19 @@ When a Raven device is detected, the system provides:
 
 ### Startup Sequence
 1. **Power on** the Oui-Spy device
-2. **Connect your phone** via BLE (see below)
-3. **Start the web server**: `python flockyou.py` (from the `api` directory)
+2. **Launch the Android App** and connect (see below)
+3. **Start the web server** (Optional): `python flockyou.py` (from the `api` directory)
 4. **Open the dashboard**: Navigate to `http://localhost:5000`
 5. **Connect devices**: Use the web interface to connect your Flock You device and GPS
 6. **System ready** when "hunting for Flock Safety devices" appears in the serial terminal
 
 ### Connecting to Phone / Android Auto
-1. Install a BLE Terminal app (e.g., **Serial Bluetooth Terminal** for Android).
-2. Open the app and search for BLE devices.
-3. Connect to **"FlockDetector"**.
-4. Enable **Background Notifications** in the app settings.
-5. **Android Auto**: If your phone is connected to your car, the notifications should appear on your car's display automatically.
+1. **Install the App**: Build and install the `Flock You Client` app (see Installation above).
+2. **Open the App**: Launch "Flock You Client" on your phone.
+3. **Grant Permissions**: Allow Bluetooth and Notification permissions when prompted.
+4. **Scan & Connect**: Tap "Scan for Devices". The app will automatically find and connect to your "FlockDetector".
+5. **Proximity Mode**: Use the RSSI bar to track signal strength (Blue -> Red).
+6. **Android Auto**: Connect your phone to your car. Detections will appear as high-priority notifications on the dashboard.
 
 ### Detection Monitoring
 - **Phone Notifications**: Instant text alerts on your phone/watch/car

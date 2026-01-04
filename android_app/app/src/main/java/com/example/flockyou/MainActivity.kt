@@ -36,6 +36,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
     private lateinit var scanButton: Button
     private lateinit var logText: TextView
+    private lateinit var rssiValue: TextView
+    private lateinit var rssiProgressBar: android.widget.ProgressBar
 
     private var bluetoothAdapter: BluetoothAdapter? = null
     private var bluetoothGatt: BluetoothGatt? = null
@@ -139,11 +141,38 @@ class MainActivity : AppCompatActivity() {
                 val message = String(data)
                 log("Received: $message")
                 
+                // Parse RSSI if present: [RSSI:-75]
+                val rssiRegex = "\\[RSSI:(-?\\d+)\\]".toRegex()
+                val matchResult = rssiRegex.find(message)
+                if (matchResult != null) {
+                    val rssi = matchResult.groupValues[1].toInt()
+                    updateRssi(rssi)
+                }
+
                 // Only send notification for actual detections, ignore heartbeats
                 if (message.startsWith("FLOCK DETECTED!")) {
                     sendNotification(message)
                 }
             }
+        }
+    }
+
+    private fun updateRssi(rssi: Int) {
+        runOnUiThread {
+            rssiValue.text = "$rssi dBm"
+            // Map RSSI (-100 to -30) to Progress (0 to 100)
+            // -100 -> 0
+            // -30 -> 100
+            val progress = ((rssi + 100) * (100.0 / 70.0)).toInt().coerceIn(0, 100)
+            rssiProgressBar.progress = progress
+            
+            // Change color based on strength
+            val color = when {
+                rssi > -60 -> 0xFFFF0000.toInt() // Red (Hot/Close)
+                rssi > -80 -> 0xFFFFA500.toInt() // Orange (Medium)
+                else -> 0xFF0000FF.toInt()       // Blue (Cold/Far)
+            }
+            rssiProgressBar.progressTintList = android.content.res.ColorStateList.valueOf(color)
         }
     }
 
@@ -168,6 +197,8 @@ class MainActivity : AppCompatActivity() {
         statusText = findViewById(R.id.statusText)
         scanButton = findViewById(R.id.scanButton)
         logText = findViewById(R.id.logText)
+        rssiValue = findViewById(R.id.rssiValue)
+        rssiProgressBar = findViewById(R.id.rssiProgressBar)
 
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         bluetoothAdapter = bluetoothManager.adapter
