@@ -42,6 +42,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.tileprovider.tilesource.XYTileSource
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
@@ -51,11 +52,14 @@ import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 class MainActivity : AppCompatActivity(), LocationListener {
 
     private lateinit var statusText: TextView
+    private lateinit var statusDot: View
+    private lateinit var threatLevelText: TextView
     private lateinit var scanButton: Button
     private lateinit var statsButton: Button
     private lateinit var mapButton: Button
     private lateinit var logText: TextView
     private lateinit var logScrollView: ScrollView
+    private lateinit var logCard: View
     private lateinit var rssiValue: TextView
     private lateinit var rssiProgressBar: android.widget.ProgressBar
     private lateinit var mapView: MapView
@@ -212,7 +216,9 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private fun updateRssi(rssi: Int) {
         runOnUiThread {
             val threatText = ThreatLevelUtil.getThreatLevelText(rssi)
-            rssiValue.text = "$rssi dBm - $threatText"
+            rssiValue.text = "$rssi dBm"
+            threatLevelText.text = threatText
+            
             // Map RSSI (-100 to -30) to Progress (0 to 100)
             // -100 -> 0
             // -30 -> 100
@@ -222,6 +228,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
             // Use consistent color scheme
             val color = ThreatLevelUtil.getThreatColor(rssi)
             rssiProgressBar.progressTintList = android.content.res.ColorStateList.valueOf(color)
+            threatLevelText.setTextColor(color)
         }
     }
 
@@ -304,6 +311,8 @@ class MainActivity : AppCompatActivity(), LocationListener {
         createNotificationChannel()
 
         statusText = findViewById(R.id.statusText)
+        statusDot = findViewById(R.id.statusDot)
+        threatLevelText = findViewById(R.id.threatLevelText)
         scanButton = findViewById(R.id.scanButton)
         statsButton = findViewById(R.id.statsButton)
         mapButton = findViewById(R.id.mapButton)
@@ -313,6 +322,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
         
         logText = findViewById(R.id.logText)
         logScrollView = findViewById(R.id.logScrollView)
+        logCard = findViewById(R.id.logCard)
         rssiValue = findViewById(R.id.rssiValue)
         rssiProgressBar = findViewById(R.id.rssiProgressBar)
         mapView = findViewById(R.id.mapView)
@@ -411,7 +421,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
 
         isScanning = true
         updateStatus("Scanning...")
-        scanButton.text = "Stop Scan"
+        scanButton.text = "STOP"
         
         startLocationUpdates()
         
@@ -435,7 +445,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
         
         isScanning = false
         updateStatus("Disconnected")
-        scanButton.text = getString(R.string.scan_button)
+        scanButton.text = "SCAN"
     }
 
     @SuppressLint("MissingPermission")
@@ -447,6 +457,16 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private fun updateStatus(status: String) {
         runOnUiThread {
             statusText.text = status
+            // Update status dot color based on state
+            val dotColor = when {
+                status.contains("Connected", ignoreCase = true) -> 
+                    ContextCompat.getColor(this, R.color.status_connected)
+                status.contains("Scanning", ignoreCase = true) || status.contains("Connecting", ignoreCase = true) -> 
+                    ContextCompat.getColor(this, R.color.status_scanning)
+                else -> 
+                    ContextCompat.getColor(this, R.color.status_disconnected)
+            }
+            statusDot.backgroundTintList = android.content.res.ColorStateList.valueOf(dotColor)
         }
     }
 
@@ -507,20 +527,44 @@ class MainActivity : AppCompatActivity(), LocationListener {
     @SuppressLint("MissingPermission")
     private fun startLocationUpdates() {
         try {
-            locationManager?.requestLocationUpdates(
-                LocationManager.GPS_PROVIDER,
-                2000L, // 2 seconds
-                5f,    // 5 meters
-                this
-            )
-            // Also try network provider for faster fix
-            locationManager?.requestLocationUpdates(
-                LocationManager.NETWORK_PROVIDER,
-                2000L,
-                5f,
-                this
-            )
-            log("Location updates started")
+            val providers = locationManager?.allProviders ?: emptyList()
+            
+            // Use GPS provider if available
+            if (providers.contains(LocationManager.GPS_PROVIDER)) {
+                locationManager?.requestLocationUpdates(
+                    LocationManager.GPS_PROVIDER,
+                    2000L, // 2 seconds
+                    5f,    // 5 meters
+                    this
+                )
+                log("GPS location updates started")
+            }
+            
+            // Also try network provider for faster fix (if available)
+            if (providers.contains(LocationManager.NETWORK_PROVIDER)) {
+                locationManager?.requestLocationUpdates(
+                    LocationManager.NETWORK_PROVIDER,
+                    2000L,
+                    5f,
+                    this
+                )
+                log("Network location updates started")
+            }
+            
+            // Try fused provider on newer devices
+            if (providers.contains(LocationManager.FUSED_PROVIDER)) {
+                locationManager?.requestLocationUpdates(
+                    LocationManager.FUSED_PROVIDER,
+                    2000L,
+                    5f,
+                    this
+                )
+                log("Fused location updates started")
+            }
+            
+            if (providers.isEmpty()) {
+                log("No location providers available")
+            }
         } catch (e: Exception) {
             log("Error starting location updates: ${e.message}")
         }
@@ -587,39 +631,76 @@ class MainActivity : AppCompatActivity(), LocationListener {
     }
 
     private fun setupMap() {
-        mapView.setTileSource(TileSourceFactory.MAPNIK)
-        mapView.setMultiTouchControls(true)
-        mapView.controller.setZoom(18.0)
+        // Use a Google Maps-like tile source (CartoDB Voyager has a clean, Google Maps-style look)
+        // Alternative options:
+        // - CartoDB Positron (Light): "https://a.basemaps.cartocdn.com/light_all/"
+        // - Mapbox Streets (requires API key): "https://api.mapbox.com/styles/v1/mapbox/streets-v11/tiles/"
+        // - Esri World Street Map: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/"
+        val customTileSource = object : org.osmdroid.tileprovider.tilesource.XYTileSource(
+            "CartoDB Voyager",
+            0, 19, 256, ".png",
+            arrayOf(
+                "https://a.basemaps.cartocdn.com/rastertiles/voyager/",
+                "https://b.basemaps.cartocdn.com/rastertiles/voyager/",
+                "https://c.basemaps.cartocdn.com/rastertiles/voyager/",
+                "https://d.basemaps.cartocdn.com/rastertiles/voyager/"
+            ),
+            "© OpenStreetMap contributors, © CARTO"
+        ) {}
         
-        // Add MyLocation overlay
+        mapView.setTileSource(customTileSource)
+        mapView.setMultiTouchControls(true)
+        mapView.controller.setZoom(18.0)  // Closer zoom for street-level view while driving
+        
+        // Set a default center (US center) until we get actual location
+        // This prevents showing ocean at 0,0
+        val defaultPoint = GeoPoint(39.8283, -98.5795)
+        mapView.controller.setCenter(defaultPoint)
+        
+        // Add MyLocation overlay with continuous tracking
         myLocationOverlay = MyLocationNewOverlay(GpsMyLocationProvider(this), mapView)
         myLocationOverlay?.enableMyLocation()
-        myLocationOverlay?.enableFollowLocation()
+        myLocationOverlay?.enableFollowLocation()  // Keep map centered on user location
+        
+        // When location is first fixed, center the map
+        myLocationOverlay?.runOnFirstFix {
+            runOnUiThread {
+                myLocationOverlay?.myLocation?.let { loc ->
+                    mapView.controller.animateTo(loc)
+                }
+            }
+        }
+        
         mapView.overlays.add(myLocationOverlay)
         
-        // Set initial center if location is known
+        // Set initial center if location is already known
         currentLocation?.let {
             val startPoint = GeoPoint(it.latitude, it.longitude)
             mapView.controller.setCenter(startPoint)
         }
     }
 
+    @SuppressLint("MissingPermission")
     private fun toggleMapView() {
         isMapVisible = !isMapVisible
         if (isMapVisible) {
             mapView.visibility = View.VISIBLE
-            logScrollView.visibility = View.GONE
-            mapButton.text = "Log"
+            logCard.visibility = View.GONE
+            mapButton.text = "LOG"
             
-            // Center immediately if we have a location
-            currentLocation?.let {
+            // Try to center on current or last known location
+            val locationToUse = currentLocation 
+                ?: locationManager?.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                ?: locationManager?.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+            
+            locationToUse?.let {
                 val point = GeoPoint(it.latitude, it.longitude)
-                mapView.controller.setCenter(point)
+                mapView.controller.animateTo(point)
             }
         } else {
             mapView.visibility = View.GONE
-            logScrollView.visibility = View.VISIBLE
-            mapButton.text = "Map"
+            logCard.visibility = View.VISIBLE
+            mapButton.text = "MAP"
         }
     }
     

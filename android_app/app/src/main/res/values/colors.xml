@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark theme base colors -->
+    <color name="background_dark">#0D0D0D</color>
+    <color name="surface_dark">#1A1A1A</color>
+    <color name="surface_elevated">#252525</color>
+    
+    <!-- Primary accent - electric purple -->
+    <color name="primary">#8B5CF6</color>
+    <color name="primary_variant">#7C3AED</color>
+    <color name="primary_dark">#6D28D9</color>
+    
+    <!-- Status colors -->
+    <color name="status_connected">#22C55E</color>
+    <color name="status_scanning">#F59E0B</color>
+    <color name="status_disconnected">#6B7280</color>
+    
+    <!-- Threat level colors -->
+    <color name="threat_low">#22C55E</color>
+    <color name="threat_medium">#F59E0B</color>
+    <color name="threat_high">#EF4444</color>
+    <color name="threat_critical">#DC2626</color>
+    
+    <!-- Text colors -->
+    <color name="text_primary">#FFFFFF</color>
+    <color name="text_secondary">#9CA3AF</color>
+    <color name="text_muted">#6B7280</color>
+    
+    <!-- Console/log colors -->
+    <color name="console_background">#0A0A0A</color>
+    <color name="console_text">#22C55E</color>
+    <color name="console_border">#2D2D2D</color>
+    
+    <!-- Button colors -->
+    <color name="button_background">#2D2D2D</color>
+    <color name="button_background_active">#8B5CF6</color>
+    <color name="button_text">#FFFFFF</color>
+    
+    <!-- Ripple color -->
+    <color name="ripple_color">#338B5CF6</color>
+</resources>

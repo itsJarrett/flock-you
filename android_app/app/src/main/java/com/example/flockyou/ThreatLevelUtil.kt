@@ -5,10 +5,11 @@ object ThreatLevelUtil {
     const val RSSI_HIGH = -70
     const val RSSI_MEDIUM = -80
     
-    const val COLOR_CRITICAL = 0xFFFF0000.toInt()  // Red
-    const val COLOR_HIGH = 0xFFFF6600.toInt()      // Dark Orange
-    const val COLOR_MEDIUM = 0xFFFFA500.toInt()    // Orange
-    const val COLOR_LOW = 0xFF0000FF.toInt()       // Blue
+    // Updated colors to match the dark theme
+    const val COLOR_CRITICAL = 0xFFDC2626.toInt()  // Red
+    const val COLOR_HIGH = 0xFFEF4444.toInt()      // Light Red  
+    const val COLOR_MEDIUM = 0xFFF59E0B.toInt()    // Amber
+    const val COLOR_LOW = 0xFF22C55E.toInt()       // Green
     
     enum class ThreatLevel {
         CRITICAL, HIGH, MEDIUM, LOW
@@ -25,10 +26,10 @@ object ThreatLevelUtil {
     
     fun getThreatLevelText(rssi: Int): String {
         return when (getThreatLevel(rssi)) {
-            ThreatLevel.CRITICAL -> "🔴 CRITICAL"
-            ThreatLevel.HIGH -> "🟠 HIGH"
-            ThreatLevel.MEDIUM -> "🟡 MEDIUM"
-            ThreatLevel.LOW -> "🔵 LOW"
+            ThreatLevel.CRITICAL -> "CRITICAL THREAT"
+            ThreatLevel.HIGH -> "HIGH THREAT"
+            ThreatLevel.MEDIUM -> "MEDIUM THREAT"
+            ThreatLevel.LOW -> "NO THREAT"
         }
     }
     

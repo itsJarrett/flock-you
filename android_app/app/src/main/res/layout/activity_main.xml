@@ -4,110 +4,187 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:padding="16dp"
+    android:background="@color/background_dark"
+    android:padding="12dp"
     tools:context=".MainActivity">
 
-    <TextView
-        android:id="@+id/statusText"
-        android:layout_width="wrap_content"
+    <!-- Top Bar: Status + Controls -->
+    <LinearLayout
+        android:id="@+id/topBar"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:text="@string/status_disconnected"
-        android:textSize="18sp"
-        android:textStyle="bold"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
+        app:layout_constraintEnd_toEndOf="parent">
 
-    <Button
-        android:id="@+id/scanButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/scan_button"
-        android:layout_marginTop="16dp"
-        android:layout_marginEnd="8dp"
-        app:layout_constraintTop_toBottomOf="@id/statusText"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toStartOf="@+id/statsButton"
-        app:layout_constraintHorizontal_chainStyle="packed" />
+        <!-- Status indicator dot -->
+        <View
+            android:id="@+id/statusDot"
+            android:layout_width="10dp"
+            android:layout_height="10dp"
+            android:background="@drawable/status_dot"
+            android:backgroundTint="@color/status_disconnected" />
 
-    <Button
-        android:id="@+id/statsButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Stats"
-        android:layout_marginTop="16dp"
-        android:layout_marginEnd="8dp"
-        app:layout_constraintTop_toBottomOf="@id/statusText"
-        app:layout_constraintStart_toEndOf="@id/scanButton"
-        app:layout_constraintEnd_toStartOf="@+id/mapButton" />
+        <TextView
+            android:id="@+id/statusText"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:text="@string/status_disconnected"
+            android:textColor="@color/text_secondary"
+            android:textSize="14sp" />
 
-    <Button
-        android:id="@+id/mapButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Map"
-        android:layout_marginTop="16dp"
-        app:layout_constraintTop_toBottomOf="@id/statusText"
-        app:layout_constraintStart_toEndOf="@id/statsButton"
-        app:layout_constraintEnd_toEndOf="parent" />
+        <!-- Compact button row -->
+        <Button
+            android:id="@+id/scanButton"
+            style="@style/AppButton.Primary"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="SCAN"
+            android:textSize="11sp"
+            android:layout_marginEnd="6dp" />
 
-    <TextView
-        android:id="@+id/rssiLabel"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Signal Strength (RSSI)"
-        android:layout_marginTop="16dp"
-        app:layout_constraintTop_toBottomOf="@id/scanButton"
-        app:layout_constraintStart_toStartOf="parent" />
+        <Button
+            android:id="@+id/statsButton"
+            style="@style/AppButton"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="STATS"
+            android:textSize="11sp"
+            android:layout_marginEnd="6dp" />
 
-    <TextView
-        android:id="@+id/rssiValue"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="--"
-        android:textStyle="bold"
-        android:layout_marginTop="16dp"
-        app:layout_constraintTop_toBottomOf="@id/scanButton"
-        app:layout_constraintEnd_toEndOf="parent" />
+        <Button
+            android:id="@+id/mapButton"
+            style="@style/AppButton"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="MAP"
+            android:textSize="11sp" />
 
-    <ProgressBar
-        android:id="@+id/rssiProgressBar"
-        style="?android:attr/progressBarStyleHorizontal"
+    </LinearLayout>
+
+    <!-- Main Threat Display Card -->
+    <androidx.cardview.widget.CardView
+        android:id="@+id/threatCard"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:max="100"
-        android:progress="0"
-        app:layout_constraintTop_toBottomOf="@id/rssiLabel"
+        android:layout_marginTop="12dp"
+        app:cardBackgroundColor="@color/surface_dark"
+        app:cardCornerRadius="12dp"
+        app:cardElevation="0dp"
+        app:layout_constraintTop_toBottomOf="@id/topBar"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
+        app:layout_constraintEnd_toEndOf="parent">
 
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <!-- RSSI Header -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/rssiLabel"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="SIGNAL"
+                    android:textColor="@color/text_muted"
+                    android:textSize="11sp"
+                    android:letterSpacing="0.1" />
+
+                <TextView
+                    android:id="@+id/rssiValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="-- dBm"
+                    android:textColor="@color/text_primary"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:fontFamily="sans-serif-medium" />
+
+            </LinearLayout>
+
+            <!-- Signal Strength Bar -->
+            <ProgressBar
+                android:id="@+id/rssiProgressBar"
+                style="@android:style/Widget.ProgressBar.Horizontal"
+                android:layout_width="match_parent"
+                android:layout_height="8dp"
+                android:layout_marginTop="8dp"
+                android:max="100"
+                android:progress="0"
+                android:progressDrawable="@drawable/progress_signal"
+                android:background="@drawable/progress_background" />
+
+            <!-- Threat Level Text -->
+            <TextView
+                android:id="@+id/threatLevelText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="NO THREAT"
+                android:textColor="@color/threat_low"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:textAlignment="center"
+                android:fontFamily="sans-serif-condensed" />
+
+        </LinearLayout>
+
+    </androidx.cardview.widget.CardView>
+
+    <!-- Log/Map Container -->
     <FrameLayout
+        android:id="@+id/contentContainer"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:layout_marginTop="16dp"
-        app:layout_constraintTop_toBottomOf="@id/rssiProgressBar"
+        android:layout_marginTop="12dp"
+        app:layout_constraintTop_toBottomOf="@id/threatCard"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
-        <ScrollView
-            android:id="@+id/logScrollView"
+        <!-- Console Log -->
+        <androidx.cardview.widget.CardView
+            android:id="@+id/logCard"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:background="#121212"
-            android:padding="8dp">
+            app:cardBackgroundColor="@color/console_background"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="0dp">
 
-            <TextView
-                android:id="@+id/logText"
+            <ScrollView
+                android:id="@+id/logScrollView"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:fontFamily="monospace"
-                android:text="Ready to scan..."
-                android:textColor="#00FF00"
-                android:textSize="12sp" />
-        </ScrollView>
+                android:layout_height="match_parent"
+                android:padding="12dp"
+                android:scrollbars="none">
 
+                <TextView
+                    android:id="@+id/logText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="monospace"
+                    android:text="Ready to scan..."
+                    android:textColor="@color/console_text"
+                    android:textSize="11sp"
+                    android:lineSpacingExtra="2dp" />
+
+            </ScrollView>
+
+        </androidx.cardview.widget.CardView>
+
+        <!-- Map View (hidden by default) -->
         <org.osmdroid.views.MapView
             android:id="@+id/mapView"
             android:layout_width="match_parent"
