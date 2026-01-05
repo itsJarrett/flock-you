@@ -59,7 +59,10 @@ static const char* mac_prefixes[] = {
     
     // Flock WiFi devices
     "70:c9:4e", "3c:91:80", "d8:f3:bc", "80:30:49", "14:5a:fc",
-    "74:4c:a1", "08:3a:88", "9c:2f:9d", "94:08:53", "e4:aa:ea"
+    "74:4c:a1", "08:3a:88", "9c:2f:9d", "94:08:53", "e4:aa:ea",
+    
+    // Cradlepoint routers (used in surveillance systems)
+    "00:30:44", "00:e0:1c"
     
     // Penguin devices - these are NOT OUI based, so use local ouis
     // from the wigle.net db relative to your location 
