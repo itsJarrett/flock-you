@@ -12,10 +12,12 @@ import android.content.pm.PackageManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.AlertDialog
 import android.content.Intent
 import androidx.core.app.NotificationCompat
 import androidx.core.app.Person
 import androidx.core.graphics.drawable.IconCompat
+import androidx.core.content.ContextCompat
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -28,49 +30,47 @@ import android.util.Log
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
+import android.widget.ScrollView
+import android.view.View
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
+import androidx.preference.PreferenceManager
 import java.util.UUID
 import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
-import android.app.AlertDialog
-
-data class DetectionInfo(
-    val mac: String,
-    var count: Int = 0,
-    var firstSeen: Long = 0,
-    var lastSeen: Long = 0,
-    var lastRssi: Int = 0,
-    var lastLat: Double? = null,
-    var lastLon: Double? = null
-)
+import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
+import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 
 class MainActivity : AppCompatActivity(), LocationListener {
 
     private lateinit var statusText: TextView
     private lateinit var scanButton: Button
     private lateinit var statsButton: Button
+    private lateinit var mapButton: Button
     private lateinit var logText: TextView
+    private lateinit var logScrollView: ScrollView
     private lateinit var rssiValue: TextView
     private lateinit var rssiProgressBar: android.widget.ProgressBar
+    private lateinit var mapView: MapView
+    private var myLocationOverlay: MyLocationNewOverlay? = null
+    private var currentLocationMarker: Marker? = null
 
     private var bluetoothAdapter: BluetoothAdapter? = null
     private var bluetoothGatt: BluetoothGatt? = null
     private var isScanning = false
+    private var isMapVisible = false
     private val handler = Handler(Looper.getMainLooper())
     
     private var locationManager: LocationManager? = null
     private var currentLocation: Location? = null
-    private val detections = mutableMapOf<String, DetectionInfo>()
     
-    // Session stats
-    private val sessionStart = System.currentTimeMillis()
-    private val sessionDetections = mutableSetOf<String>()
-    private var sessionTotalCount = 0
-
     // UUIDs from the ESP32 code
     private val SERVICE_UUID = UUID.fromString("6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
     private val CHARACTERISTIC_TX_UUID = UUID.fromString("6E400003-B5A3-F393-E0A9-E50E24DCCA9E")
@@ -80,18 +80,24 @@ class MainActivity : AppCompatActivity(), LocationListener {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val device = result.device
             val name = device.name ?: "Unknown"
-            log("Found device: $name (${device.address})")
             
-            // Stop scanning and connect
-            stopScan()
-            connectToDevice(device)
+            // 1. Check if this is our FlockDetector
+            // We check by Service UUID (if advertised) or Name
+            val isFlockDetector = name == "FlockDetector" || 
+                                  (result.scanRecord?.serviceUuids?.contains(ParcelUuid(SERVICE_UUID)) == true)
+
+            if (isFlockDetector) {
+                if (bluetoothGatt == null) {
+                    log("Found FlockDetector! Connecting...")
+                    connectToDevice(device)
+                    stopScan()
+                }
+                return
+            }
         }
 
         override fun onScanFailed(errorCode: Int) {
             log("Scan failed with error: $errorCode")
-            isScanning = false
-            updateStatus("Scan Failed")
-            scanButton.isEnabled = true
         }
     }
 
@@ -129,8 +135,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
                             UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
                         )
                         if (descriptor != null) {
-                            descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                            gatt.writeDescriptor(descriptor)
+                            gatt.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
                         } else {
                             log("Could not find CCCD descriptor!")
                         }
@@ -145,6 +150,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
             }
         }
 
+        @Suppress("OVERRIDE_DEPRECATION")
         override fun onCharacteristicChanged(
             gatt: BluetoothGatt,
             characteristic: BluetoothGattCharacteristic
@@ -164,7 +170,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
         
         private fun handleCharacteristicChange(characteristic: BluetoothGattCharacteristic, value: ByteArray? = null) {
             if (characteristic.uuid == CHARACTERISTIC_TX_UUID) {
-                val data = value ?: characteristic.value
+                val data = value ?: byteArrayOf()
                 val chunk = String(data)
                 
                 dataBuffer.append(chunk)
@@ -205,19 +211,16 @@ class MainActivity : AppCompatActivity(), LocationListener {
 
     private fun updateRssi(rssi: Int) {
         runOnUiThread {
-            rssiValue.text = "$rssi dBm"
+            val threatText = ThreatLevelUtil.getThreatLevelText(rssi)
+            rssiValue.text = "$rssi dBm - $threatText"
             // Map RSSI (-100 to -30) to Progress (0 to 100)
             // -100 -> 0
             // -30 -> 100
             val progress = ((rssi + 100) * (100.0 / 70.0)).toInt().coerceIn(0, 100)
             rssiProgressBar.progress = progress
             
-            // Change color based on strength
-            val color = when {
-                rssi > -60 -> 0xFFFF0000.toInt() // Red (Hot/Close)
-                rssi > -80 -> 0xFFFFA500.toInt() // Orange (Medium)
-                else -> 0xFF0000FF.toInt()       // Blue (Cold/Far)
-            }
+            // Use consistent color scheme
+            val color = ThreatLevelUtil.getThreatColor(rssi)
             rssiProgressBar.progressTintList = android.content.res.ColorStateList.valueOf(color)
         }
     }
@@ -255,21 +258,14 @@ class MainActivity : AppCompatActivity(), LocationListener {
                 // Handle detection
                 val mac = json.optString("mac_address", "")
                 if (mac.isNotEmpty()) {
-                    val info = detections.getOrPut(mac) { 
-                        DetectionInfo(mac, firstSeen = System.currentTimeMillis()) 
-                    }
-                    info.count++
-                    info.lastSeen = System.currentTimeMillis()
-                    info.lastRssi = rssi
+                    // Use Repository
+                    val info = DetectionRepository.addDetection(mac, rssi, currentLocation)
                     
-                    // Update session stats
-                    sessionDetections.add(mac)
-                    sessionTotalCount++
-                    
-                    // Update with current GPS if available
-                    currentLocation?.let {
-                        info.lastLat = it.latitude
-                        info.lastLon = it.longitude
+                    // Add marker to map
+                    if (info.lastLat != null && info.lastLon != null) {
+                        val title = if (protocol == "wifi") "WiFi: $mac" else "BLE: $mac"
+                        val snippet = "RSSI: $rssi"
+                        addMapMarker(info.lastLat!!, info.lastLon!!, title, snippet)
                     }
                     
                     val countStr = "Count: ${info.count}"
@@ -299,6 +295,10 @@ class MainActivity : AppCompatActivity(), LocationListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Initialize osmdroid configuration
+        Configuration.getInstance().load(this, PreferenceManager.getDefaultSharedPreferences(this))
+        
         setContentView(R.layout.activity_main)
 
         createNotificationChannel()
@@ -306,11 +306,18 @@ class MainActivity : AppCompatActivity(), LocationListener {
         statusText = findViewById(R.id.statusText)
         scanButton = findViewById(R.id.scanButton)
         statsButton = findViewById(R.id.statsButton)
+        mapButton = findViewById(R.id.mapButton)
+        
         statsButton.setOnClickListener { showStats() }
+        mapButton.setOnClickListener { toggleMapView() }
         
         logText = findViewById(R.id.logText)
+        logScrollView = findViewById(R.id.logScrollView)
         rssiValue = findViewById(R.id.rssiValue)
         rssiProgressBar = findViewById(R.id.rssiProgressBar)
+        mapView = findViewById(R.id.mapView)
+        
+        setupMap()
 
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         bluetoothAdapter = bluetoothManager.adapter
@@ -318,7 +325,15 @@ class MainActivity : AppCompatActivity(), LocationListener {
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         
         // Load detections after UI is initialized because it logs to logText
-        loadDetections()
+        DetectionRepository.load(this)
+        log("Loaded ${DetectionRepository.detections.size} detections from storage")
+        
+        // Add markers for loaded detections
+        for (info in DetectionRepository.detections.values) {
+            if (info.lastLat != null && info.lastLon != null) {
+                addMapMarker(info.lastLat!!, info.lastLon!!, "History: ${info.mac}", "Count: ${info.count}")
+            }
+        }
 
         scanButton.setOnClickListener {
             if (isScanning) {
@@ -331,7 +346,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
 
     override fun onPause() {
         super.onPause()
-        saveDetections()
+        DetectionRepository.save(this)
     }
 
     private fun checkPermissionsAndScan() {
@@ -484,19 +499,6 @@ class MainActivity : AppCompatActivity(), LocationListener {
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
 
-        // Add CarExtender for better Android Auto support
-        val carExtender = NotificationCompat.CarExtender()
-            .setUnreadConversation(
-                NotificationCompat.CarExtender.UnreadConversation.Builder("Flock Detection")
-                    .setReadPendingIntent(pendingIntent)
-                    .setReplyAction(pendingIntent, androidx.core.app.RemoteInput.Builder("voice_reply").build())
-                    .addMessage(message)
-                    .setLatestTimestamp(System.currentTimeMillis())
-                    .build()
-            )
-        
-        builder.extend(carExtender)
-
         with(androidx.core.app.NotificationManagerCompat.from(this)) {
             notify(System.currentTimeMillis().toInt(), builder.build())
         }
@@ -531,76 +533,49 @@ class MainActivity : AppCompatActivity(), LocationListener {
 
     override fun onLocationChanged(location: Location) {
         currentLocation = location
-        // Optional: log("Location updated: ${location.latitude}, ${location.longitude}")
+        val point = GeoPoint(location.latitude, location.longitude)
+        
+        // Update "You" marker
+        if (currentLocationMarker == null) {
+            currentLocationMarker = Marker(mapView)
+            currentLocationMarker?.title = "You"
+            currentLocationMarker?.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+            val icon = ContextCompat.getDrawable(this, R.drawable.ic_dot)
+            if (icon != null) {
+                currentLocationMarker?.icon = icon
+            }
+            mapView.overlays.add(currentLocationMarker)
+        }
+        currentLocationMarker?.position = point
+        mapView.invalidate()
+        
+        // Manually update map center if visible
+        if (isMapVisible) {
+            mapView.controller.animateTo(point)
+        }
     }
 
     override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
     override fun onProviderEnabled(provider: String) {}
     override fun onProviderDisabled(provider: String) {}
     
-    private fun loadDetections() {
-        try {
-            val file = File(filesDir, "detections.json")
-            if (file.exists()) {
-                val jsonStr = file.readText()
-                val jsonArray = JSONArray(jsonStr)
-                for (i in 0 until jsonArray.length()) {
-                    val obj = jsonArray.getJSONObject(i)
-                    val mac = obj.getString("mac")
-                    val info = DetectionInfo(
-                        mac = mac,
-                        count = obj.optInt("count", 0),
-                        firstSeen = obj.optLong("firstSeen", 0),
-                        lastSeen = obj.optLong("lastSeen", 0),
-                        lastRssi = obj.optInt("lastRssi", 0),
-                        lastLat = if (obj.has("lastLat")) obj.getDouble("lastLat") else null,
-                        lastLon = if (obj.has("lastLon")) obj.getDouble("lastLon") else null
-                    )
-                    detections[mac] = info
-                }
-                log("Loaded ${detections.size} detections from storage")
-            }
-        } catch (e: Exception) {
-            log("Error loading detections: ${e.message}")
-        }
-    }
-
-    private fun saveDetections() {
-        try {
-            val jsonArray = JSONArray()
-            for (info in detections.values) {
-                val obj = JSONObject()
-                obj.put("mac", info.mac)
-                obj.put("count", info.count)
-                obj.put("firstSeen", info.firstSeen)
-                obj.put("lastSeen", info.lastSeen)
-                obj.put("lastRssi", info.lastRssi)
-                info.lastLat?.let { obj.put("lastLat", it) }
-                info.lastLon?.let { obj.put("lastLon", it) }
-                jsonArray.put(obj)
-            }
-            val file = File(filesDir, "detections.json")
-            file.writeText(jsonArray.toString())
-        } catch (e: Exception) {
-            log("Error saving detections: ${e.message}")
-        }
-    }
+    // loadDetections and saveDetections moved to DetectionRepository
 
     private fun showStats() {
-        val sessionDuration = (System.currentTimeMillis() - sessionStart) / 1000
+        val sessionDuration = (System.currentTimeMillis() - DetectionRepository.sessionStart) / 1000
         val sessionDurationStr = String.format("%02d:%02d:%02d", 
             sessionDuration / 3600, (sessionDuration % 3600) / 60, sessionDuration % 60)
             
-        val allTimeTotalCount = detections.values.sumOf { it.count }
+        val allTimeTotalCount = DetectionRepository.detections.values.sumOf { it.count }
         
         val msg = """
             SESSION STATS
             Duration: $sessionDurationStr
-            Unique Devices: ${sessionDetections.size}
-            Total Detections: $sessionTotalCount
+            Unique Devices: ${DetectionRepository.sessionDetections.size}
+            Total Detections: ${DetectionRepository.sessionTotalCount}
             
             ALL TIME STATS
-            Unique Devices: ${detections.size}
+            Unique Devices: ${DetectionRepository.detections.size}
             Total Detections: $allTimeTotalCount
         """.trimIndent()
         
@@ -611,8 +586,60 @@ class MainActivity : AppCompatActivity(), LocationListener {
             .show()
     }
 
+    private fun setupMap() {
+        mapView.setTileSource(TileSourceFactory.MAPNIK)
+        mapView.setMultiTouchControls(true)
+        mapView.controller.setZoom(18.0)
+        
+        // Add MyLocation overlay
+        myLocationOverlay = MyLocationNewOverlay(GpsMyLocationProvider(this), mapView)
+        myLocationOverlay?.enableMyLocation()
+        myLocationOverlay?.enableFollowLocation()
+        mapView.overlays.add(myLocationOverlay)
+        
+        // Set initial center if location is known
+        currentLocation?.let {
+            val startPoint = GeoPoint(it.latitude, it.longitude)
+            mapView.controller.setCenter(startPoint)
+        }
+    }
+
+    private fun toggleMapView() {
+        isMapVisible = !isMapVisible
+        if (isMapVisible) {
+            mapView.visibility = View.VISIBLE
+            logScrollView.visibility = View.GONE
+            mapButton.text = "Log"
+            
+            // Center immediately if we have a location
+            currentLocation?.let {
+                val point = GeoPoint(it.latitude, it.longitude)
+                mapView.controller.setCenter(point)
+            }
+        } else {
+            mapView.visibility = View.GONE
+            logScrollView.visibility = View.VISIBLE
+            mapButton.text = "Map"
+        }
+    }
+    
+    private fun addMapMarker(lat: Double, lon: Double, title: String, snippet: String) {
+        val point = GeoPoint(lat, lon)
+        val marker = Marker(mapView)
+        marker.position = point
+        marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+        marker.title = title
+        marker.snippet = snippet
+        mapView.overlays.add(marker)
+        mapView.invalidate()
+    }
+
     override fun onDestroy() {
         super.onDestroy()
+        // osmdroid cleanup
+        myLocationOverlay?.disableMyLocation()
+        mapView.onDetach()
+        
         if (ActivityCompat.checkSelfPermission(
                 this,
                 Manifest.permission.BLUETOOTH_CONNECT
