@@ -133,6 +133,14 @@ static const char* raven_service_uuids[] = {
 // GLOBAL VARIABLES
 // ============================================================================
 
+enum DetectionType {
+    NONE = 0,
+    WIFI_CAMERA = 1,
+    BLE_CAMERA = 2,
+    RAVEN_GUNSHOT = 3
+};
+
+static DetectionType current_detection_type = NONE;
 static uint8_t current_channel = 1;
 static unsigned long last_channel_hop = 0;
 static bool triggered = false;
@@ -198,8 +206,26 @@ void flock_detected_notification(String details)
 // JSON OUTPUT FUNCTIONS
 // ============================================================================
 
+void update_detection_state(DetectionType new_type) {
+    device_in_range = true; // Enable LED and Heartbeat
+    if (!triggered) {
+        triggered = true;
+        current_detection_type = new_type;
+    } else {
+        // Upgrade priority if new detection is more critical
+        if (new_type > current_detection_type) {
+            current_detection_type = new_type;
+        }
+    }
+    // Update timestamps
+    last_detection_time = millis();
+}
+
 void output_wifi_detection_json(const char* ssid, const uint8_t* mac, int rssi, const char* detection_type)
 {
+    update_detection_state(WIFI_CAMERA);
+    last_rssi = rssi;
+
     DynamicJsonDocument doc(2048);
     
     // Core detection info
@@ -273,6 +299,9 @@ void output_wifi_detection_json(const char* ssid, const uint8_t* mac, int rssi, 
 
 void output_ble_detection_json(const char* mac, const char* name, int rssi, const char* detection_method)
 {
+    update_detection_state(BLE_CAMERA);
+    last_rssi = rssi;
+
     DynamicJsonDocument doc(2048);
     
     // Core detection info
@@ -629,6 +658,7 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
         // Check for Raven surveillance device service UUIDs
         char detected_service_uuid[41] = {0};
         if (check_raven_service_uuid(advertisedDevice, detected_service_uuid)) {
+            update_detection_state(RAVEN_GUNSHOT);
             // Raven device detected! Get firmware version estimate
             const char* fw_version = estimate_raven_firmware_version(advertisedDevice);
             const char* service_desc = get_raven_service_description(detected_service_uuid);
@@ -787,14 +817,40 @@ void loop()
     // LED CONTROL LOGIC (RGB)
     // ===================================
     if (device_in_range) {
-        // FAST RED STROBE (Target Found!)
-        // 100ms cycle: 50ms ON, 50ms OFF
-        bool on = (now % 100) < 50;
-        if (on) {
-            pixel.setPixelColor(0, pixel.Color(255, 0, 0)); // RED
-        } else {
-            pixel.setPixelColor(0, pixel.Color(0, 0, 0)); // OFF
+        
+        switch (current_detection_type) {
+            case RAVEN_GUNSHOT:
+                // CRITICAL PRIORITY: RAVEN / GUNSHOT DETECTION
+                // FAST RED STROBE (50ms ON/OFF)
+                if ((now % 100) < 50) {
+                    pixel.setPixelColor(0, pixel.Color(255, 0, 0)); // RED
+                } else {
+                    pixel.setPixelColor(0, pixel.Color(0, 0, 0));
+                }
+                break;
+
+            case BLE_CAMERA:
+                // HIGH PRIORITY: BLE CAMERA
+                // PURPLE BLINK (100ms ON/OFF)
+                if ((now % 200) < 100) {
+                    pixel.setPixelColor(0, pixel.Color(255, 0, 255)); // PURPLE
+                } else {
+                    pixel.setPixelColor(0, pixel.Color(0, 0, 0));
+                }
+                break;
+
+            case WIFI_CAMERA:
+            default:
+                // MEDIUM PRIORITY: WIFI CAMERA
+                // ORANGE BLINK (200ms ON/200ms OFF)
+                if ((now % 400) < 200) {
+                    pixel.setPixelColor(0, pixel.Color(255, 140, 0)); // ORANGE
+                } else {
+                    pixel.setPixelColor(0, pixel.Color(0, 0, 0));
+                }
+                break;
         }
+
     } else {
         // SCANNING BREATHE/BLINK (Blue)
         // Gentle Blue Pulse every 2 seconds
@@ -804,6 +860,9 @@ void loop()
         } else {
            pixel.setPixelColor(0, pixel.Color(0, 0, 0)); // OFF
         }
+        
+        // Reset detection type if not in range to avoid stale state on next detect
+        current_detection_type = NONE;
     }
     pixel.show();
 

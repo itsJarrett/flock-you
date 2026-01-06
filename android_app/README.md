@@ -2,6 +2,8 @@
 
 This is a simple Android application to connect to the Flock You device via Bluetooth Low Energy (BLE) and receive notifications.
 
+**Now with Android Auto Support!** Get high-priority detection alerts directly on your vehicle's dashboard.
+
 ## Prerequisites
 
 - Android Studio (latest version recommended)
@@ -31,14 +33,16 @@ This is a simple Android application to connect to the Flock You device via Blue
 
 1. Ensure Bluetooth is enabled on your phone.
 2. Open the **Flock You Client** app.
-3. Grant the requested Location and Bluetooth permissions.
+3. Grant the requested Location, Bluetooth, and Notification permissions.
 4. Tap **Scan for Devices**.
 5. The app will scan for a device named "FlockDetector" or with the specific Service UUID.
 6. Once found, it will automatically connect.
-7. Notifications from the device will appear in the log area on the screen.
+7. **Android Auto**: Connect your phone to your car. Alerts will appear automatically on the car display.
+8. **Proximity Monitor**: Observe the log and signal strength indicators to locate the source.
 
 ## Troubleshooting
 
 - **Permissions:** If the app crashes or doesn't scan, ensure you have granted all permissions in the Android Settings.
 - **Bluetooth:** Toggle Bluetooth off and on if scanning fails.
-- **Device Not Found:** Ensure the Flock You device is powered on and advertising (the LED might indicate status depending on firmware).
+- **Device Not Found:** Ensure the Flock You device is powered on and advertising.
+- **Android Auto**: If the app doesn't appear in the launcher, you may need to enable "Unknown Sources" in Android Auto developer settings (tap version number 10 times in Android Auto settings on your phone).

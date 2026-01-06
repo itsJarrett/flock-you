@@ -51,8 +51,9 @@ Flock You is an advanced detection system designed to identify Flock Safety surv
 - **Microcontroller**: Xiao ESP32 S3 board
 - **Power**: USB-C cable for programming and power
 
-### Option 3: Waveshare ESP32-S3 SuperMini
-- **Microcontroller**: Waveshare ESP32-S3 SuperMini
+### Option 3: Waveshare ESP32-S3 SuperMini / Zero (Recommended)
+- **Microcontroller**: Waveshare ESP32-S3 SuperMini or ESP32-S3-Zero
+- **LED**: Onboard WS2812B RGB LED (GPIO 21) for color-coded status
 - **Configuration**: Use `[env:esp32-s3-supermini]` in `platformio.ini`
 
 ## Installation
@@ -64,14 +65,21 @@ Flock You is an advanced detection system designed to identify Flock Safety surv
    cd flock-you
    ```
 
-2. **Connect your device** via USB-C
+2. **Connect your device** via USB-C.
+   - **WSL Users**: Windows users running WSL2 must use `usbipd` to pass the USB device to Linux.
+     ```powershell
+     # In Windows PowerShell (Admin)
+     usbipd list
+     usbipd bind --busid <BUSID>
+     usbipd attach --wsl --busid <BUSID>
+     ```
 
 3. **Flash the firmware**:
    - For Xiao ESP32 S3: `pio run -e xiao_esp32s3 --target upload`
    - For Waveshare SuperMini: `pio run -e esp32-s3-supermini --target upload`
 
 ### Android App Setup
-The companion app is located in the `android_app/` directory.
+The companion app is located in the `android_app/` directory and supports Android Auto.
 
 1. **Build via Command Line**:
    ```bash
@@ -270,6 +278,19 @@ When a Raven device is detected, the system provides:
 - **WiFi**: Automatically hops through channels 1-13
 - **BLE**: Continuous scanning across all BLE channels
 - **Status Updates**: Channel changes logged to serial terminal
+
+### LED Status Indicators (Waveshare ESP32-S3 SuperMini)
+The onboard RGB LED (GPIO 21) provides instant visual feedback on detections:
+
+| Color | Pattern | Meaning | Priority |
+| :--- | :--- | :--- | :--- |
+| **Blue** | Slow Breathe/Pulse | **Scanning** (Idle state) | N/A |
+| **Red** | Fast Strobe | **Raven/Gunshot Sensor Detected** | **Critical** |
+| **Purple** | Fast Blink | **Flock Safety Camera (BLE)** | **High** |
+| **Orange** | Medium Blink | **Flock Safety Camera (WiFi)** | **Medium** |
+
+- **Priority Logic**: If multiple devices are detected, the LED shows the highest priority threat.
+- **Auto-Reset**: LED returns to Blue breathing mode when devices go out of range (~30s).
 
 ## Detection Patterns
 
