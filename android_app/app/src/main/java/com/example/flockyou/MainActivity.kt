@@ -94,7 +94,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
                 if (bluetoothGatt == null) {
                     log("Found FlockDetector! Connecting...")
                     connectToDevice(device)
-                    stopScan()
+                    stopScan(true)
                 }
                 return
             }
@@ -109,16 +109,22 @@ class MainActivity : AppCompatActivity(), LocationListener {
         @SuppressLint("MissingPermission")
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
-                runOnUiThread { updateStatus("Connected") }
                 log("Connected to GATT server.")
+                runOnUiThread { 
+                    updateStatus("Connected")
+                    scanButton.text = "DISCONNECT"
+                }
                 log("Attempting to start service discovery...")
+                gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
                 gatt.discoverServices()
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                log("Disconnected (status=$status).")
                 runOnUiThread { 
                     updateStatus("Disconnected") 
+                    scanButton.text = "CONNECT"
                     scanButton.isEnabled = true
                 }
-                log("Disconnected from GATT server.")
+                gatt.close()
                 bluetoothGatt = null
             }
         }
@@ -348,10 +354,15 @@ class MainActivity : AppCompatActivity(), LocationListener {
         scanButton.setOnClickListener {
             if (isScanning) {
                 stopScan()
+            } else if (bluetoothGatt != null) {
+                disconnectDevice()
             } else {
                 checkPermissionsAndScan()
             }
         }
+        
+        // Initial state
+        scanButton.text = "CONNECT"
     }
 
     override fun onPause() {
@@ -428,30 +439,49 @@ class MainActivity : AppCompatActivity(), LocationListener {
         // Scan for either the UUID or the Name
         scanner.startScan(listOf(filter, nameFilter), settings, scanCallback)
         
-        // Stop scan after 10 seconds
-        handler.postDelayed({
-            if (isScanning) stopScan()
-        }, 10000)
+        // Timeout removed for continuous scanning until connection
     }
 
     @SuppressLint("MissingPermission")
-    private fun stopScan() {
+    private fun stopScan(foundDevice: Boolean = false) {
         if (!isScanning) return
         
         val scanner = bluetoothAdapter?.bluetoothLeScanner
         scanner?.stopScan(scanCallback)
         
-        stopLocationUpdates()
-        
-        isScanning = false
+        // Don't stop location updates if we are connected/connecting, only if fully stopping
+        if (!foundDevice) {
+            stopLocationUpdates()
+            isScanning = false
+            scanButton.text = "CONNECT"
+            updateStatus("Disconnected")
+        } else {
+             isScanning = false
+             scanButton.text = "CONNECTING..."
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun disconnectDevice() {
+        if (bluetoothGatt != null) {
+            bluetoothGatt?.disconnect()
+            bluetoothGatt?.close()
+            bluetoothGatt = null
+        }
         updateStatus("Disconnected")
-        scanButton.text = "SCAN"
+        scanButton.text = "CONNECT"
+        stopLocationUpdates()
     }
 
     @SuppressLint("MissingPermission")
     private fun connectToDevice(device: BluetoothDevice) {
         updateStatus("Connecting to ${device.name ?: "Unknown"}...")
-        bluetoothGatt = device.connectGatt(this, false, gattCallback)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            // AutoConnect = true helps with stability for reconnections
+            bluetoothGatt = device.connectGatt(this, true, gattCallback, BluetoothDevice.TRANSPORT_LE)
+        } else {
+            bluetoothGatt = device.connectGatt(this, true, gattCallback)
+        }
     }
 
     private fun updateStatus(status: String) {

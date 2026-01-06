@@ -43,7 +43,7 @@
             style="@style/AppButton.Primary"
             android:layout_width="wrap_content"
             android:layout_height="36dp"
-            android:text="SCAN"
+            android:text="CONNECT"
             android:textSize="11sp"
             android:layout_marginEnd="6dp" />
 
