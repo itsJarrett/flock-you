@@ -5,8 +5,8 @@
 #include <NimBLEAdvertisedDevice.h>
 #include <NimBLEServer.h>
 #include <NimBLEUtils.h>
-#include <NimBLE2902.h>
 #include <ArduinoJson.h>
+#include <Adafruit_NeoPixel.h>
 #include <string.h>
 #include <ctype.h>
 #include <stdio.h>
@@ -17,6 +17,13 @@
 // ============================================================================
 // CONFIGURATION
 // ============================================================================
+
+// LED Configuration - Using Adafruit NeoPixel on Pin 21 (Common for Waveshare S3 Zero)
+// The datasheet confirms it's a WS2812B compatible RGB LED
+#define NEOPIXEL_PIN 21
+#define NUMPIXELS 1
+
+Adafruit_NeoPixel pixel(NUMPIXELS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
 
 // BLE Notification Configuration
 #define SERVICE_UUID           "6E400001-B5A3-F393-E0A9-E50E24DCCA9E" // UART Service
@@ -348,6 +355,11 @@ void output_ble_detection_json(const char* mac, const char* name, int rssi, cons
     serializeJson(doc, json_output);
     Serial.println(json_output);
     
+    // Set global state to triggered
+    device_in_range = true; 
+    last_detection_time = millis();
+    triggered = true;
+
     // Send full JSON over BLE
     send_notification(json_output);
 }
@@ -658,11 +670,13 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
             
             if (!triggered) {
                 triggered = true;
+                device_in_range = true; // Enable fast blinking LED
                 flock_detected_notification(String("Raven: ") + service_desc + " [RSSI:" + String(rssi) + "]");
             }
             // Always update detection time for heartbeat tracking
             last_detection_time = millis();
             last_rssi = rssi;
+            device_in_range = true; // Ensure heartbeat keeps going with fresh RSSI
             return;
         }
     }
@@ -693,7 +707,19 @@ void hop_channel()
 void setup()
 {
     Serial.begin(115200);
-    delay(1000);
+
+    // Initialize RGB LED
+    pixel.begin();
+    pixel.setBrightness(20); // Low-ish brightness (max 255)
+    pixel.setPixelColor(0, pixel.Color(0, 0, 255)); // Blue start
+    pixel.show();
+
+    // Wait for Serial connection
+    delay(2000); 
+    unsigned long start = millis();
+    while(!Serial && (millis() - start < 5000)) {
+        delay(10);
+    }
     
     printf("Starting Flock Squawk Enhanced Detection System...\n\n");
     
@@ -753,8 +779,40 @@ void setup()
     last_channel_hop = millis();
 }
 
-void loop()
+void loop() 
 {
+    unsigned long now = millis();
+
+    // ===================================
+    // LED CONTROL LOGIC (RGB)
+    // ===================================
+    if (device_in_range) {
+        // FAST RED STROBE (Target Found!)
+        // 100ms cycle: 50ms ON, 50ms OFF
+        bool on = (now % 100) < 50;
+        if (on) {
+            pixel.setPixelColor(0, pixel.Color(255, 0, 0)); // RED
+        } else {
+            pixel.setPixelColor(0, pixel.Color(0, 0, 0)); // OFF
+        }
+    } else {
+        // SCANNING BREATHE/BLINK (Blue)
+        // Gentle Blue Pulse every 2 seconds
+        int cycle = now % 2000;
+        if (cycle < 100) {
+           pixel.setPixelColor(0, pixel.Color(0, 0, 50)); // Dim Blue
+        } else {
+           pixel.setPixelColor(0, pixel.Color(0, 0, 0)); // OFF
+        }
+    }
+    pixel.show();
+
+    // (put this at the top of the loop)
+    static unsigned long lastLog = 0;
+    if (millis() - lastLog > 2000) {
+        lastLog = millis();
+        Serial.println("System active - Scanning...");
+    }
     // Handle channel hopping for WiFi promiscuous mode
     hop_channel();
     
