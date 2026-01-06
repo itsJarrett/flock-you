@@ -25,9 +25,6 @@
 
 Adafruit_NeoPixel pixel(NUMPIXELS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
 
-// Test Button Configuration (GPIO 0 = BOOT button on most ESP32-S3 boards)
-#define TEST_BUTTON_PIN 0
-
 // BLE Notification Configuration
 #define SERVICE_UUID           "6E400001-B5A3-F393-E0A9-E50E24DCCA9E" // UART Service
 #define CHARACTERISTIC_UUID_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
@@ -161,11 +158,6 @@ static NimBLEScan* pBLEScan;
 static NimBLEServer* pServer = NULL;
 static NimBLECharacteristic* pTxCharacteristic = NULL;
 static bool deviceConnected = false;
-
-// Button state tracking
-static bool lastButtonState = HIGH;
-static unsigned long lastDebounceTime = 0;
-static const unsigned long debounceDelay = 50;
 
 // ============================================================================
 // BLE NOTIFICATION SYSTEM
@@ -835,10 +827,7 @@ void setup()
     
     printf("BLE scanner initialized\n");
     printf("System ready - hunting for Flock Safety devices...\n\n");
-    
-    // Initialize test button
-    pinMode(TEST_BUTTON_PIN, INPUT_PULLUP);
-    printf("Test button initialized on GPIO %d (Press to simulate Axon detection)\n\n", TEST_BUTTON_PIN);
+    printf("Type 'test' or 'axon' in serial console to simulate Axon detection\n\n");
     
     last_channel_hop = millis();
 }
@@ -848,16 +837,14 @@ void loop()
     unsigned long now = millis();
 
     // ===================================
-    // TEST BUTTON LOGIC (Simulate Axon)
+    // SERIAL COMMAND HANDLER (Simulate Axon)
     // ===================================
-    int buttonReading = digitalRead(TEST_BUTTON_PIN);
-    if (buttonReading != lastButtonState) {
-        lastDebounceTime = now;
-    }
-    
-    if ((now - lastDebounceTime) > debounceDelay) {
-        if (buttonReading == LOW && lastButtonState == HIGH) {
-            // Button pressed - simulate Axon detection
+    if (Serial.available() > 0) {
+        String cmd = Serial.readStringUntil('\n');
+        cmd.trim();
+        cmd.toLowerCase();
+        
+        if (cmd == "test" || cmd == "axon") {
             printf("\n[TEST] Simulating Axon Body Cam detection...\n");
             
             // Create fake Axon BLE detection
@@ -865,7 +852,7 @@ void loop()
             doc["timestamp"] = millis();
             doc["detection_time"] = String(millis() / 1000.0, 3) + "s";
             doc["protocol"] = "bluetooth_le";
-            doc["detection_method"] = "test_button";
+            doc["detection_method"] = "test_console";
             doc["alert_level"] = "HIGH";
             doc["device_category"] = "AXON_SYSTEM";
             doc["mac_address"] = "00:25:df:aa:bb:cc";
@@ -875,6 +862,7 @@ void loop()
             doc["threat_score"] = 95;
             doc["vendor_oui"] = "00:25:df";
             doc["manufacturer"] = "Axon Enterprise, Inc.";
+            doc["test_mode"] = true;
             
             String json_output;
             serializeJson(doc, json_output);
@@ -885,10 +873,12 @@ void loop()
             update_detection_state(AXON_SYSTEM);
             last_rssi = -55;
             
-            printf("[TEST] Axon detection simulated!\n\n");
+            printf("[TEST] Axon detection simulated successfully\n\n");
+        } else if (cmd.length() > 0) {
+            printf("Unknown command: %s\n", cmd.c_str());
+            printf("Available commands: test, axon\n\n");
         }
     }
-    lastButtonState = buttonReading;
 
     // ===================================
     // LED CONTROL LOGIC (RGB)
