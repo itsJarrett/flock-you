@@ -62,6 +62,15 @@
             android:layout_width="wrap_content"
             android:layout_height="36dp"
             android:text="MAP"
+            android:textSize="11sp"
+            android:layout_marginEnd="6dp" />
+
+        <Button
+            android:id="@+id/clearDbButton"
+            style="@style/AppButton"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="CLEAR"
             android:textSize="11sp" />
 
     </LinearLayout>

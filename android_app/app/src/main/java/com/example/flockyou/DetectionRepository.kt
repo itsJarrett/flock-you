@@ -112,4 +112,23 @@ object DetectionRepository {
         notifyListeners()
         return info
     }
+    
+    fun clear(context: Context) {
+        detections.clear()
+        sessionDetections.clear()
+        sessionTotalCount = 0
+        sessionStart = System.currentTimeMillis()
+        
+        // Delete the file
+        try {
+            val file = File(context.filesDir, "detections.json")
+            if (file.exists()) {
+                file.delete()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        
+        notifyListeners()
+    }
 }

@@ -3,7 +3,7 @@ package com.example.flockyou
 import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.*
-import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.  Callback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
@@ -57,6 +57,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private lateinit var scanButton: Button
     private lateinit var statsButton: Button
     private lateinit var mapButton: Button
+    private lateinit var clearDbButton: Button
     private lateinit var logText: TextView
     private lateinit var logScrollView: ScrollView
     private lateinit var logCard: View
@@ -322,9 +323,11 @@ class MainActivity : AppCompatActivity(), LocationListener {
         scanButton = findViewById(R.id.scanButton)
         statsButton = findViewById(R.id.statsButton)
         mapButton = findViewById(R.id.mapButton)
+        clearDbButton = findViewById(R.id.clearDbButton)
         
         statsButton.setOnClickListener { showStats() }
         mapButton.setOnClickListener { toggleMapView() }
+        clearDbButton.setOnClickListener { confirmClearDatabase() }
         
         logText = findViewById(R.id.logText)
         logScrollView = findViewById(R.id.logScrollView)
@@ -634,6 +637,40 @@ class MainActivity : AppCompatActivity(), LocationListener {
     override fun onProviderDisabled(provider: String) {}
     
     // loadDetections and saveDetections moved to DetectionRepository
+
+    private fun confirmClearDatabase() {
+        val allTimeTotalCount = DetectionRepository.detections.values.sumOf { it.count }
+        val msg = """
+            Are you sure you want to clear the database?
+            
+            This will permanently delete:
+            • ${DetectionRepository.detections.size} unique devices
+            • $allTimeTotalCount total detection records
+            
+            This action cannot be undone!
+        """.trimIndent()
+        
+        AlertDialog.Builder(this)
+            .setTitle("⚠️ Clear Database?")
+            .setMessage(msg)
+            .setPositiveButton("CLEAR") { _, _ ->
+                clearDatabase()
+            }
+            .setNegativeButton("CANCEL", null)
+            .show()
+    }
+    
+    private fun clearDatabase() {
+        DetectionRepository.clear(this)
+        
+        // Clear all map markers except current location
+        val toRemove = mapView.overlays.filter { it != myLocationOverlay && it != currentLocationMarker }
+        mapView.overlays.removeAll(toRemove)
+        mapView.invalidate()
+        
+        log("\n✓ Database cleared")
+        Toast.makeText(this, "Database cleared", Toast.LENGTH_SHORT).show()
+    }
 
     private fun showStats() {
         val sessionDuration = (System.currentTimeMillis() - DetectionRepository.sessionStart) / 1000
