@@ -286,6 +286,7 @@ The onboard RGB LED (GPIO 21) provides instant visual feedback on detections:
 | :--- | :--- | :--- | :--- |
 | **Blue** | Slow Breathe/Pulse | **Scanning** (Idle state) | N/A |
 | **Red** | Fast Strobe | **Raven/Gunshot Sensor Detected** | **Critical** |
+| **Blue/Red**| Rapid Alternating | **Axon / Law Enforcement Presence** | **High** |
 | **Purple** | Fast Blink | **Flock Safety Camera (BLE)** | **High** |
 | **Orange** | Medium Blink | **Flock Safety Camera (WiFi)** | **Medium** |
 
@@ -302,11 +303,13 @@ The onboard RGB LED (GPIO 21) provides instant visual feedback on detections:
 
 ### MAC Address Prefixes
 - `AA:BB:CC` - Flock Safety manufacturer codes
+- `00:25:DF` - Axon Enterprise (Body Body 2/3, Fleet systems)
 - `DD:EE:FF` - Penguin device identifiers
 - `11:22:33` - Pigvision system codes
 
 ### BLE Device Names
 - `Flock*` - Flock Safety BLE devices
+- `Axon*` - Axon Body Cams and Fleet systems
 - `Penguin*` - Penguin BLE identifiers
 - `Pigvision*` - Pigvision BLE devices
 

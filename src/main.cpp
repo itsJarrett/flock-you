@@ -55,7 +55,8 @@ static const char* wifi_ssid_patterns[] = {
     "FLOCK",        // All caps variant
     "FS Ext Battery", // Flock Safety Extended Battery devices
     "Penguin",      // Penguin surveillance devices
-    "Pigvision"     // Pigvision surveillance systems
+    "Pigvision",    // Pigvision surveillance systems
+    "Axon"          // Axon Body Cam / Fleet
 };
 
 // Known Flock Safety MAC address prefixes (from real device databases)
@@ -69,7 +70,10 @@ static const char* mac_prefixes[] = {
     "74:4c:a1", "08:3a:88", "9c:2f:9d", "94:08:53", "e4:aa:ea",
     
     // Cradlepoint routers (used in surveillance systems)
-    "00:30:44", "00:e0:1c"
+    "00:30:44", "00:e0:1c",
+
+    // Axon Enterprise, Inc. (Body 2/3, Fleet)
+    "00:25:df"
     
     // Penguin devices - these are NOT OUI based, so use local ouis
     // from the wigle.net db relative to your location 
@@ -84,7 +88,8 @@ static const char* device_name_patterns[] = {
     "FS Ext Battery",  // Flock Safety Extended Battery
     "Penguin",         // Penguin surveillance devices
     "Flock",           // Standard Flock Safety devices
-    "Pigvision"        // Pigvision surveillance systems
+    "Pigvision",       // Pigvision surveillance systems
+    "Axon"             // Axon Body Cam / Fleet
 };
 
 // ============================================================================
@@ -137,7 +142,8 @@ enum DetectionType {
     NONE = 0,
     WIFI_CAMERA = 1,
     BLE_CAMERA = 2,
-    RAVEN_GUNSHOT = 3
+    AXON_SYSTEM = 3,
+    RAVEN_GUNSHOT = 4
 };
 
 static DetectionType current_detection_type = NONE;
@@ -223,7 +229,17 @@ void update_detection_state(DetectionType new_type) {
 
 void output_wifi_detection_json(const char* ssid, const uint8_t* mac, int rssi, const char* detection_type)
 {
-    update_detection_state(WIFI_CAMERA);
+    DetectionType resolved_type = WIFI_CAMERA;
+    char mac_prefix[9];
+    snprintf(mac_prefix, sizeof(mac_prefix), "%02x:%02x:%02x", mac[0], mac[1], mac[2]);
+    
+    if (strcasecmp(mac_prefix, "00:25:df") == 0) {
+        resolved_type = AXON_SYSTEM;
+    } else if (ssid && strcasestr(ssid, "axon")) {
+        resolved_type = AXON_SYSTEM;
+    }
+
+    update_detection_state(resolved_type);
     last_rssi = rssi;
 
     DynamicJsonDocument doc(2048);
@@ -249,8 +265,7 @@ void output_wifi_detection_json(const char* ssid, const uint8_t* mac, int rssi, 
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     doc["mac_address"] = mac_str;
     
-    char mac_prefix[9];
-    snprintf(mac_prefix, sizeof(mac_prefix), "%02x:%02x:%02x", mac[0], mac[1], mac[2]);
+    // mac_prefix already calculated above
     doc["mac_prefix"] = mac_prefix;
     doc["vendor_oui"] = mac_prefix;
     
@@ -299,7 +314,14 @@ void output_wifi_detection_json(const char* ssid, const uint8_t* mac, int rssi, 
 
 void output_ble_detection_json(const char* mac, const char* name, int rssi, const char* detection_method)
 {
-    update_detection_state(BLE_CAMERA);
+    DetectionType resolved_type = BLE_CAMERA;
+    if (mac && strncasecmp(mac, "00:25:df", 8) == 0) {
+        resolved_type = AXON_SYSTEM;
+    } else if (name && strcasestr(name, "axon")) {
+        resolved_type = AXON_SYSTEM;
+    }
+
+    update_detection_state(resolved_type);
     last_rssi = rssi;
 
     DynamicJsonDocument doc(2048);
@@ -826,6 +848,16 @@ void loop()
                     pixel.setPixelColor(0, pixel.Color(255, 0, 0)); // RED
                 } else {
                     pixel.setPixelColor(0, pixel.Color(0, 0, 0));
+                }
+                break;
+
+            case AXON_SYSTEM:
+                // HIGH PRIORITY: AXON / POLICE SYSTEMS
+                // BLUE/RED POLICE STROBE
+                if ((now % 200) < 100) {
+                    pixel.setPixelColor(0, pixel.Color(0, 0, 255)); // BLUE
+                } else {
+                    pixel.setPixelColor(0, pixel.Color(255, 0, 0)); // RED
                 }
                 break;
 
