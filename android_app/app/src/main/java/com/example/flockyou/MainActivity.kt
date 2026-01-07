@@ -58,6 +58,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private lateinit var statsButton: Button
     private lateinit var mapButton: Button
     private lateinit var clearDbButton: Button
+    private lateinit var filterButton: Button
     private lateinit var logText: TextView
     private lateinit var logScrollView: ScrollView
     private lateinit var logCard: View
@@ -71,6 +72,8 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private var bluetoothGatt: BluetoothGatt? = null
     private var isScanning = false
     private var isMapVisible = false
+    private var showUniqueOnly = false
+    private val mapMarkers = mutableListOf<Marker>()
     private val handler = Handler(Looper.getMainLooper())
     
     private var locationManager: LocationManager? = null
@@ -344,10 +347,12 @@ class MainActivity : AppCompatActivity(), LocationListener {
         statsButton = findViewById(R.id.statsButton)
         mapButton = findViewById(R.id.mapButton)
         clearDbButton = findViewById(R.id.clearDbButton)
+        filterButton = findViewById(R.id.filterButton)
         
         statsButton.setOnClickListener { showStats() }
         mapButton.setOnClickListener { toggleMapView() }
         clearDbButton.setOnClickListener { confirmClearDatabase() }
+        filterButton.setOnClickListener { toggleMapFilter() }
         
         logText = findViewById(R.id.logText)
         logScrollView = findViewById(R.id.logScrollView)
@@ -692,10 +697,58 @@ class MainActivity : AppCompatActivity(), LocationListener {
         // Clear all map markers except current location
         val toRemove = mapView.overlays.filter { it != myLocationOverlay && it != currentLocationMarker }
         mapView.overlays.removeAll(toRemove)
+        mapMarkers.clear()
         mapView.invalidate()
         
         log("\n✓ Database cleared")
         Toast.makeText(this, "Database cleared", Toast.LENGTH_SHORT).show()
+    }
+    
+    private fun toggleMapFilter() {
+        showUniqueOnly = !showUniqueOnly
+        filterButton.text = if (showUniqueOnly) "UNIQUE" else "ALL"
+        
+        if (isMapVisible) {
+            refreshMap()
+        }
+        
+        val filterMsg = if (showUniqueOnly) "Showing unique devices only" else "Showing all detections"
+        Toast.makeText(this, filterMsg, Toast.LENGTH_SHORT).show()
+    }
+    
+    private fun refreshMap() {
+        // Clear existing detection markers (keep current location)
+        val toRemove = mapView.overlays.filter { it != myLocationOverlay && it != currentLocationMarker }
+        mapView.overlays.removeAll(toRemove)
+        mapMarkers.clear()
+        
+        if (showUniqueOnly) {
+            // Show only latest position for each unique device
+            DetectionRepository.detections.values.forEach { detection ->
+                if (detection.lastLat != null && detection.lastLon != null) {
+                    val category = DeviceCategoryUtil.getCategoryFromMac(detection.mac)
+                    val categoryIcon = DeviceCategoryUtil.getCategoryIcon(category)
+                    val categoryName = DeviceCategoryUtil.getCategoryName(category)
+                    
+                    val title = "$categoryIcon $categoryName"
+                    val snippet = "${detection.mac} | Count: ${detection.count}"
+                    
+                    val point = GeoPoint(detection.lastLat!!, detection.lastLon!!)
+                    val marker = Marker(mapView)
+                    marker.position = point
+                    marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    marker.title = title
+                    marker.snippet = snippet
+                    mapView.overlays.add(marker)
+                    mapMarkers.add(marker)
+                }
+            }
+        } else {
+            // Show all markers (they're added via addMapMarker as detections come in)
+            // This is just a placeholder - markers are added dynamically
+        }
+        
+        mapView.invalidate()
     }
 
     private fun showStats() {
@@ -781,6 +834,9 @@ class MainActivity : AppCompatActivity(), LocationListener {
             logCard.visibility = View.GONE
             mapButton.text = "LOG"
             
+            // Refresh map with current filter
+            refreshMap()
+            
             // Try to center on current or last known location
             val locationToUse = currentLocation 
                 ?: locationManager?.getLastKnownLocation(LocationManager.GPS_PROVIDER)
@@ -798,6 +854,12 @@ class MainActivity : AppCompatActivity(), LocationListener {
     }
     
     private fun addMapMarker(lat: Double, lon: Double, title: String, snippet: String) {
+        // In unique mode, markers are managed by refreshMap()
+        // Only add markers directly when in "ALL" mode
+        if (showUniqueOnly) {
+            return
+        }
+        
         val point = GeoPoint(lat, lon)
         val marker = Marker(mapView)
         marker.position = point
@@ -805,6 +867,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
         marker.title = title
         marker.snippet = snippet
         mapView.overlays.add(marker)
+        mapMarkers.add(marker)
         mapView.invalidate()
     }
 
