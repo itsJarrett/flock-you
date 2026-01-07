@@ -59,8 +59,12 @@ static const char* wifi_ssid_patterns[] = {
     "Axon"          // Axon Body Cam / Fleet
 };
 
-// Known Flock Safety MAC address prefixes (from real device databases)
-static const char* mac_prefixes[] = {
+// ============================================================================
+// COMPREHENSIVE OUI DATABASE (Organizationally Unique Identifiers)
+// ============================================================================
+
+// FLOCK SAFETY & SURVEILLANCE SYSTEMS
+static const char* flock_safety_ouis[] = {
     // FS Ext Battery devices
     "58:8e:81", "cc:cc:cc", "ec:1b:bd", "90:35:ea", "04:0d:84", 
     "f0:82:c0", "1c:34:f1", "38:5b:44", "94:34:69", "b4:e3:f9",
@@ -69,27 +73,95 @@ static const char* mac_prefixes[] = {
     "70:c9:4e", "3c:91:80", "d8:f3:bc", "80:30:49", "14:5a:fc",
     "74:4c:a1", "08:3a:88", "9c:2f:9d", "94:08:53", "e4:aa:ea",
     
-    // Cradlepoint routers (used in surveillance systems)
-    "00:30:44", "00:e0:1c",
-
-    // Axon Enterprise, Inc. (Body 2/3, Fleet)
-    "00:25:df"
+    // Flock Safety official OUI (ALPR/Falcon/Raven)
+    "b4:1e:52",
     
-    // Penguin devices - these are NOT OUI based, so use local ouis
-    // from the wigle.net db relative to your location 
-    // "cc:09:24", "ed:c7:63", "e8:ce:56", "ea:0c:ea", "d8:8f:14",
-    // "f9:d9:c0", "f1:32:f9", "f6:a0:76", "e4:1c:9e", "e7:f2:43",
-    // "e2:71:33", "da:91:a9", "e1:0e:15", "c8:ae:87", "f4:ed:b2",
-    // "d8:bf:b5", "ee:8f:3c", "d7:2b:21", "ea:5a:98"
+    // Cradlepoint routers (used in surveillance systems)
+    "00:30:44", "00:e0:1c"
+};
+
+// AXON ENTERPRISE (Law Enforcement Body Cameras)
+static const char* axon_ouis[] = {
+    "00:25:df"  // Axon Body 2/3, Axon Fleet
+};
+
+// RING (Doorbell & Security Cameras)
+static const char* ring_ouis[] = {
+    "18:7f:88", "24:2b:d6", "34:3e:a4", "54:e0:19",
+    "5c:47:5e", "64:9a:63", "90:48:6c", "9c:76:13",
+    "ac:9f:c3", "c4:db:ad", "cc:3b:fb"
+};
+
+// DJI (Consumer & Commercial Drones)
+static const char* dji_ouis[] = {
+    "0c:9a:e6", "8c:58:23", "04:a8:5a", "58:b8:58",
+    "e4:7a:2c", "60:60:1f", "48:1c:b9", "34:d2:62"
+};
+
+// PARROT (Consumer & Commercial Drones)
+static const char* parrot_ouis[] = {
+    "00:12:1c", "00:26:7e", "90:03:b7",
+    "90:3a:e6", "a0:14:3d"
+};
+
+// SKYDIO (Commercial & Enterprise Drones)
+static const char* skydio_ouis[] = {
+    "38:1d:14"
+};
+
+// Combined list for quick iteration (legacy compatibility)
+static const char* mac_prefixes[] = {
+    // Flock Safety & Surveillance
+    "58:8e:81", "cc:cc:cc", "ec:1b:bd", "90:35:ea", "04:0d:84", 
+    "f0:82:c0", "1c:34:f1", "38:5b:44", "94:34:69", "b4:e3:f9",
+    "70:c9:4e", "3c:91:80", "d8:f3:bc", "80:30:49", "14:5a:fc",
+    "74:4c:a1", "08:3a:88", "9c:2f:9d", "94:08:53", "e4:aa:ea",
+    "b4:1e:52", "00:30:44", "00:e0:1c",
+    
+    // Axon
+    "00:25:df",
+    
+    // Ring
+    "18:7f:88", "24:2b:d6", "34:3e:a4", "54:e0:19",
+    "5c:47:5e", "64:9a:63", "90:48:6c", "9c:76:13",
+    "ac:9f:c3", "c4:db:ad", "cc:3b:fb",
+    
+    // DJI
+    "0c:9a:e6", "8c:58:23", "04:a8:5a", "58:b8:58",
+    "e4:7a:2c", "60:60:1f", "48:1c:b9", "34:d2:62",
+    
+    // Parrot
+    "00:12:1c", "00:26:7e", "90:03:b7", "90:3a:e6", "a0:14:3d",
+    
+    // Skydio
+    "38:1d:14"
 };
 
 // Device name patterns for BLE advertisement detection
 static const char* device_name_patterns[] = {
+    // Flock Safety & Surveillance
     "FS Ext Battery",  // Flock Safety Extended Battery
     "Penguin",         // Penguin surveillance devices
     "Flock",           // Standard Flock Safety devices
     "Pigvision",       // Pigvision surveillance systems
-    "Axon"             // Axon Body Cam / Fleet
+    "Falcon",          // Flock Falcon cameras
+    "Raven",           // Flock Raven gunshot detection
+    
+    // Law Enforcement
+    "Axon",            // Axon Body Cam / Fleet
+    
+    // Security Cameras
+    "Ring",            // Ring Doorbell / Camera
+    
+    // Drones
+    "DJI",             // DJI drones
+    "Mavic",           // DJI Mavic series
+    "Phantom",         // DJI Phantom series
+    "Mini",            // DJI Mini series
+    "Parrot",          // Parrot drones
+    "Anafi",           // Parrot Anafi
+    "Bebop",           // Parrot Bebop
+    "Skydio"           // Skydio drones
 };
 
 // ============================================================================
@@ -143,7 +215,10 @@ enum DetectionType {
     WIFI_CAMERA = 1,
     BLE_CAMERA = 2,
     AXON_SYSTEM = 3,
-    RAVEN_GUNSHOT = 4
+    RAVEN_GUNSHOT = 4,
+    RING_DEVICE = 5,
+    DRONE_CONSUMER = 6,
+    DRONE_COMMERCIAL = 7
 };
 
 static DetectionType current_detection_type = NONE;
@@ -158,6 +233,12 @@ static NimBLEScan* pBLEScan;
 static NimBLEServer* pServer = NULL;
 static NimBLECharacteristic* pTxCharacteristic = NULL;
 static bool deviceConnected = false;
+
+// ============================================================================
+// FORWARD DECLARATIONS
+// ============================================================================
+DetectionType categorize_by_mac(const char* mac_prefix);
+const char* get_manufacturer_name(const char* mac_prefix);
 
 // ============================================================================
 // BLE NOTIFICATION SYSTEM
@@ -229,18 +310,30 @@ void update_detection_state(DetectionType new_type) {
 
 void output_wifi_detection_json(const char* ssid, const uint8_t* mac, int rssi, const char* detection_type)
 {
-    DetectionType resolved_type = WIFI_CAMERA;
     char mac_prefix[9];
     snprintf(mac_prefix, sizeof(mac_prefix), "%02x:%02x:%02x", mac[0], mac[1], mac[2]);
     
-    if (strcasecmp(mac_prefix, "00:25:df") == 0) {
+    // Categorize by MAC address
+    DetectionType resolved_type = categorize_by_mac(mac_prefix);
+    
+    // Override with SSID if it gives us more specific info
+    if (ssid && strcasestr(ssid, "axon")) {
         resolved_type = AXON_SYSTEM;
-    } else if (ssid && strcasestr(ssid, "axon")) {
-        resolved_type = AXON_SYSTEM;
+    } else if (ssid && strcasestr(ssid, "ring")) {
+        resolved_type = RING_DEVICE;
+    } else if (ssid && (strcasestr(ssid, "dji") || strcasestr(ssid, "mavic") || strcasestr(ssid, "phantom"))) {
+        resolved_type = DRONE_CONSUMER;
+    }
+    
+    // Fallback to generic camera if no specific match
+    if (resolved_type == NONE) {
+        resolved_type = WIFI_CAMERA;
     }
 
     update_detection_state(resolved_type);
     last_rssi = rssi;
+    
+    const char* manufacturer = get_manufacturer_name(mac_prefix);
 
     DynamicJsonDocument doc(2048);
     
@@ -268,6 +361,19 @@ void output_wifi_detection_json(const char* ssid, const uint8_t* mac, int rssi, 
     // mac_prefix already calculated above
     doc["mac_prefix"] = mac_prefix;
     doc["vendor_oui"] = mac_prefix;
+    doc["manufacturer"] = manufacturer;
+    
+    // Device category based on detection type
+    const char* device_category_str;
+    switch(resolved_type) {
+        case AXON_SYSTEM: device_category_str = "LAW_ENFORCEMENT"; break;
+        case RING_DEVICE: device_category_str = "SECURITY_CAMERA"; break;
+        case DRONE_CONSUMER: device_category_str = "CONSUMER_DRONE"; break;
+        case DRONE_COMMERCIAL: device_category_str = "COMMERCIAL_DRONE"; break;
+        case RAVEN_GUNSHOT: device_category_str = "GUNSHOT_DETECTION"; break;
+        default: device_category_str = "SURVEILLANCE_CAMERA"; break;
+    }
+    doc["device_category"] = device_category_str;
     
     // Detection pattern matching
     bool ssid_match = false;
@@ -418,6 +524,82 @@ void output_ble_detection_json(const char* mac, const char* name, int rssi, cons
 // ============================================================================
 // DETECTION HELPER FUNCTIONS
 // ============================================================================
+
+// Categorize device by MAC prefix
+DetectionType categorize_by_mac(const char* mac_prefix)
+{
+    // Check Raven (highest priority for gunshot detection)
+    // This should be handled separately via BLE service UUIDs
+    
+    // Check Axon
+    for (int i = 0; i < sizeof(axon_ouis)/sizeof(axon_ouis[0]); i++) {
+        if (strncasecmp(mac_prefix, axon_ouis[i], 8) == 0) {
+            return AXON_SYSTEM;
+        }
+    }
+    
+    // Check Flock Safety
+    for (int i = 0; i < sizeof(flock_safety_ouis)/sizeof(flock_safety_ouis[0]); i++) {
+        if (strncasecmp(mac_prefix, flock_safety_ouis[i], 8) == 0) {
+            return WIFI_CAMERA;  // Keep as WIFI_CAMERA for compatibility
+        }
+    }
+    
+    // Check Ring
+    for (int i = 0; i < sizeof(ring_ouis)/sizeof(ring_ouis[0]); i++) {
+        if (strncasecmp(mac_prefix, ring_ouis[i], 8) == 0) {
+            return RING_DEVICE;
+        }
+    }
+    
+    // Check DJI
+    for (int i = 0; i < sizeof(dji_ouis)/sizeof(dji_ouis[0]); i++) {
+        if (strncasecmp(mac_prefix, dji_ouis[i], 8) == 0) {
+            return DRONE_CONSUMER;
+        }
+    }
+    
+    // Check Parrot
+    for (int i = 0; i < sizeof(parrot_ouis)/sizeof(parrot_ouis[0]); i++) {
+        if (strncasecmp(mac_prefix, parrot_ouis[i], 8) == 0) {
+            return DRONE_CONSUMER;
+        }
+    }
+    
+    // Check Skydio
+    for (int i = 0; i < sizeof(skydio_ouis)/sizeof(skydio_ouis[0]); i++) {
+        if (strncasecmp(mac_prefix, skydio_ouis[i], 8) == 0) {
+            return DRONE_COMMERCIAL;
+        }
+    }
+    
+    return NONE;
+}
+
+// Get manufacturer name from MAC prefix
+const char* get_manufacturer_name(const char* mac_prefix)
+{
+    // Check all OUI arrays
+    for (int i = 0; i < sizeof(axon_ouis)/sizeof(axon_ouis[0]); i++) {
+        if (strncasecmp(mac_prefix, axon_ouis[i], 8) == 0) return "Axon Enterprise";
+    }
+    for (int i = 0; i < sizeof(flock_safety_ouis)/sizeof(flock_safety_ouis[0]); i++) {
+        if (strncasecmp(mac_prefix, flock_safety_ouis[i], 8) == 0) return "Flock Safety";
+    }
+    for (int i = 0; i < sizeof(ring_ouis)/sizeof(ring_ouis[0]); i++) {
+        if (strncasecmp(mac_prefix, ring_ouis[i], 8) == 0) return "Ring/Amazon";
+    }
+    for (int i = 0; i < sizeof(dji_ouis)/sizeof(dji_ouis[0]); i++) {
+        if (strncasecmp(mac_prefix, dji_ouis[i], 8) == 0) return "DJI";
+    }
+    for (int i = 0; i < sizeof(parrot_ouis)/sizeof(parrot_ouis[0]); i++) {
+        if (strncasecmp(mac_prefix, parrot_ouis[i], 8) == 0) return "Parrot";
+    }
+    for (int i = 0; i < sizeof(skydio_ouis)/sizeof(skydio_ouis[0]); i++) {
+        if (strncasecmp(mac_prefix, skydio_ouis[i], 8) == 0) return "Skydio";
+    }
+    return "Unknown";
+}
 
 bool check_mac_prefix(const uint8_t* mac)
 {
@@ -911,6 +1093,27 @@ void loop()
                 // PURPLE BLINK (100ms ON/OFF)
                 if ((now % 200) < 100) {
                     pixel.setPixelColor(0, pixel.Color(255, 0, 255)); // PURPLE
+                } else {
+                    pixel.setPixelColor(0, pixel.Color(0, 0, 0));
+                }
+                break;
+
+            case RING_DEVICE:
+                // MEDIUM PRIORITY: RING DEVICES
+                // CYAN BLINK (300ms ON/300ms OFF)
+                if ((now % 600) < 300) {
+                    pixel.setPixelColor(0, pixel.Color(0, 255, 255)); // CYAN
+                } else {
+                    pixel.setPixelColor(0, pixel.Color(0, 0, 0));
+                }
+                break;
+
+            case DRONE_CONSUMER:
+            case DRONE_COMMERCIAL:
+                // LOW PRIORITY: DRONES
+                // YELLOW SLOW BLINK (500ms ON/500ms OFF)
+                if ((now % 1000) < 500) {
+                    pixel.setPixelColor(0, pixel.Color(255, 255, 0)); // YELLOW
                 } else {
                     pixel.setPixelColor(0, pixel.Color(0, 0, 0));
                 }

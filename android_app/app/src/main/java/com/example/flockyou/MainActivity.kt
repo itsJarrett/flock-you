@@ -3,7 +3,7 @@ package com.example.flockyou
 import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.*
-import android.bluetooth.le.  Callback
+import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
@@ -272,13 +272,21 @@ class MainActivity : AppCompatActivity(), LocationListener {
                 // Handle detection
                 val mac = json.optString("mac_address", "")
                 if (mac.isNotEmpty()) {
+                    // Get device category and manufacturer
+                    val deviceCategory = json.optString("device_category", "UNKNOWN")
+                    val manufacturer = json.optString("manufacturer", "Unknown")
+                    val category = DeviceCategoryUtil.getCategoryFromJson(deviceCategory)
+                    val categoryColor = DeviceCategoryUtil.getCategoryColor(category)
+                    val categoryName = DeviceCategoryUtil.getCategoryName(category)
+                    val categoryIcon = DeviceCategoryUtil.getCategoryIcon(category)
+                    
                     // Use Repository
                     val info = DetectionRepository.addDetection(mac, rssi, currentLocation)
                     
                     // Add marker to map
                     if (info.lastLat != null && info.lastLon != null) {
-                        val title = if (protocol == "wifi") "WiFi: $mac" else "BLE: $mac"
-                        val snippet = "RSSI: $rssi"
+                        val title = "$categoryIcon $categoryName"
+                        val snippet = "$manufacturer | RSSI: $rssi"
                         addMapMarker(info.lastLat!!, info.lastLon!!, title, snippet)
                     }
                     
@@ -288,15 +296,27 @@ class MainActivity : AppCompatActivity(), LocationListener {
                     if (protocol == "wifi") {
                         val ssid = json.optString("ssid", "Unknown")
                         val threatScore = json.optInt("threat_score", 0)
-                        val msg = "WiFi Threat: $ssid ($mac)\nScore: $threatScore\n$countStr\n$locStr"
+                        val msg = "$categoryIcon $categoryName Detected!\n" +
+                                  "Manufacturer: $manufacturer\n" +
+                                  "SSID: $ssid\n" +
+                                  "MAC: $mac\n" +
+                                  "Score: $threatScore\n" +
+                                  "$countStr | $locStr"
                         log(msg)
-                        sendNotification(msg)
+                        sendNotification(msg, category)
                     } else if (protocol == "bluetooth_le") {
                         val name = json.optString("device_name", "Unknown")
                         val threatScore = json.optInt("threat_score", 0)
-                        val msg = "BLE Threat: $name ($mac)\nScore: $threatScore\n$countStr\n$locStr"
+                        val deviceType = json.optString("device_type", "")
+                        val typeStr = if (deviceType.isNotEmpty()) "\nType: $deviceType" else ""
+                        val msg = "$categoryIcon $categoryName Detected!\n" +
+                                  "Manufacturer: $manufacturer\n" +
+                                  "Name: $name\n" +
+                                  "MAC: $mac$typeStr\n" +
+                                  "Score: $threatScore\n" +
+                                  "$countStr | $locStr"
                         log(msg)
-                        sendNotification(msg)
+                        sendNotification(msg, category)
                     } else {
                         log("Unknown JSON message: $jsonStr")
                     }
@@ -526,15 +546,17 @@ class MainActivity : AppCompatActivity(), LocationListener {
     }
 
     @SuppressLint("MissingPermission")
-    private fun sendNotification(message: String) {
+    private fun sendNotification(message: String, category: DeviceCategoryUtil.DeviceCategory = DeviceCategoryUtil.DeviceCategory.UNKNOWN) {
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
         val pendingIntent: PendingIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
 
-        // Create a Person for the sender
+        // Create a Person for the sender with category-specific name
+        val categoryName = DeviceCategoryUtil.getCategoryName(category)
+        val categoryIcon = DeviceCategoryUtil.getCategoryIcon(category)
         val sender = Person.Builder()
-            .setName("Flock Detector")
+            .setName("$categoryIcon Flock Detector")
             .setKey("flock_detector")
             .build()
 
@@ -542,15 +564,19 @@ class MainActivity : AppCompatActivity(), LocationListener {
         val messagingStyle = NotificationCompat.MessagingStyle(sender)
             .addMessage(message, System.currentTimeMillis(), sender)
 
+        // Get category-specific color for notification
+        val categoryColor = DeviceCategoryUtil.getCategoryColor(category)
+
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setStyle(messagingStyle)
-            .setContentTitle("Flock Detection")
+            .setContentTitle("$categoryIcon $categoryName Detected")
             .setContentText(message)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
+            .setColor(categoryColor)  // Color-code the notification
 
         with(androidx.core.app.NotificationManagerCompat.from(this)) {
             notify(System.currentTimeMillis().toInt(), builder.build())

@@ -22,15 +22,18 @@ Flock You is an advanced detection system designed to identify Flock Safety surv
 
 ### Android App Integration (NEW)
 - **Custom Companion App**: Dedicated Android application for managing detections
-- **Rich Data Notifications**: Displays detailed threat info including Device Type, MAC Address, and Threat Score
+- **Color-Coded Device Categories**: Visual indicators for 7 device types (Surveillance, Law Enforcement, Drones, etc.)
+- **Device-Specific Icons**: Unique icons for each category (camera, badge, drone, doorbell)
+- **Rich Data Notifications**: Displays detailed threat info including Device Type, Manufacturer, MAC Address, and Threat Score
 - **GPS Tagging**: Automatically tags every detection with your phone's current GPS coordinates
 - **Detection Counting**: Tracks how many times each unique device has been seen
 - **Persistent Storage**: Detections are saved locally, preserving history across app restarts
 - **Session & Lifetime Stats**: View detailed statistics for the current session and all-time history
 - **Proximity Radar**: Visual RSSI graph (Blue/Orange/Red) to track distance to the device
-- **Android Auto Support**: Notifications appear directly on your car's dashboard
+- **Android Auto Support**: Notifications appear directly on your car's dashboard with category badges
 - **Smart Filtering**: Ignores heartbeat messages, alerting only on confirmed detections
 - **JSON Protocol**: Uses robust chunked JSON transmission for reliable data transfer over BLE
+- **Manufacturer Database**: Displays manufacturer name for all 57 tracked OUIs
 
 ### Comprehensive Output
 - **JSON Detection Data**: Structured output with timestamps, RSSI, MAC addresses
@@ -120,12 +123,52 @@ The companion app is located in the `android_app/` directory and supports Androi
 
 ## Detection Coverage
 
+### Detected Device Categories
+Flock You now detects **7 distinct device categories** with intelligent categorization:
+
+1. **Surveillance Cameras** (Flock Safety, Falcon, Penguin, Pigvision)
+   - 24 MAC OUIs tracked
+   - LED: Orange blink
+   - Threat Level: HIGH
+
+2. **Law Enforcement** (Axon Body Cameras, Axon Fleet)
+   - 1 MAC OUI (00:25:df)
+   - LED: Red/Blue police strobe
+   - Threat Level: CRITICAL
+
+3. **Gunshot Detection** (Raven/ShotSpotter)
+   - BLE Service UUID fingerprinting
+   - LED: Fast red strobe
+   - Threat Level: CRITICAL
+
+4. **Security Cameras** (Ring Doorbell, Ring Camera)
+   - 11 MAC OUIs tracked
+   - LED: Cyan blink
+   - Threat Level: MEDIUM
+
+5. **Consumer Drones** (DJI Mavic/Phantom/Mini, Parrot Anafi/Bebop)
+   - 13 MAC OUIs tracked
+   - LED: Yellow slow blink
+   - Threat Level: LOW
+
+6. **Commercial Drones** (Skydio 2/X2/3)
+   - 1 MAC OUI tracked
+   - LED: Yellow slow blink
+   - Threat Level: LOW
+
+7. **BLE Surveillance** (Generic BLE surveillance devices)
+   - LED: Purple blink
+   - Threat Level: HIGH
+
+**Total: 57 unique MAC OUIs tracked across all manufacturers**
+
 ### WiFi Detection Methods
 - **Probe Requests**: Captures devices actively searching for networks
 - **Beacon Frames**: Monitors network advertisements
 - **Channel Hopping**: Cycles through all 13 WiFi channels (2.4GHz)
-- **SSID Patterns**: Detects networks with "flock", "Penguin", "Pigvision" patterns
-- **MAC Prefixes**: Identifies devices by manufacturer MAC addresses
+- **SSID Patterns**: Detects networks with "flock", "Penguin", "Pigvision", "Ring", "DJI" patterns
+- **MAC Prefixes**: Identifies devices by 57 known manufacturer MAC addresses
+- **Smart Categorization**: Automatically classifies devices by manufacturer and type
 
 ### BLE Detection Methods
 - **Advertisement Scanning**: Monitors BLE device broadcasts
