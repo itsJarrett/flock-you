@@ -717,12 +717,12 @@ class MainActivity : AppCompatActivity(), LocationListener {
     }
     
     private fun refreshMap() {
-        // Clear existing detection markers (keep current location)
-        val toRemove = mapView.overlays.filter { it != myLocationOverlay && it != currentLocationMarker }
-        mapView.overlays.removeAll(toRemove)
-        mapMarkers.clear()
-        
         if (showUniqueOnly) {
+            // UNIQUE mode: Clear and rebuild with one marker per device
+            val toRemove = mapView.overlays.filter { it != myLocationOverlay && it != currentLocationMarker }
+            mapView.overlays.removeAll(toRemove)
+            mapMarkers.clear()
+            
             // Show only latest position for each unique device
             DetectionRepository.detections.values.forEach { detection ->
                 if (detection.lastLat != null && detection.lastLon != null) {
@@ -744,8 +744,33 @@ class MainActivity : AppCompatActivity(), LocationListener {
                 }
             }
         } else {
-            // Show all markers (they're added via addMapMarker as detections come in)
-            // This is just a placeholder - markers are added dynamically
+            // ALL mode: Clear and show all detection positions (including multiple per device)
+            val toRemove = mapView.overlays.filter { it != myLocationOverlay && it != currentLocationMarker }
+            mapView.overlays.removeAll(toRemove)
+            mapMarkers.clear()
+            
+            // Rebuild all markers from detection history
+            // Note: We only have latest position per device in DetectionRepository
+            // So ALL mode will show same as UNIQUE until we get new detections
+            DetectionRepository.detections.values.forEach { detection ->
+                if (detection.lastLat != null && detection.lastLon != null) {
+                    val category = DeviceCategoryUtil.getCategoryFromMac(detection.mac)
+                    val categoryIcon = DeviceCategoryUtil.getCategoryIcon(category)
+                    val categoryName = DeviceCategoryUtil.getCategoryName(category)
+                    
+                    val title = "$categoryIcon $categoryName"
+                    val snippet = "${detection.mac} | RSSI: ${detection.lastRssi}"
+                    
+                    val point = GeoPoint(detection.lastLat!!, detection.lastLon!!)
+                    val marker = Marker(mapView)
+                    marker.position = point
+                    marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    marker.title = title
+                    marker.snippet = snippet
+                    mapView.overlays.add(marker)
+                    mapMarkers.add(marker)
+                }
+            }
         }
         
         mapView.invalidate()
@@ -854,12 +879,6 @@ class MainActivity : AppCompatActivity(), LocationListener {
     }
     
     private fun addMapMarker(lat: Double, lon: Double, title: String, snippet: String) {
-        // In unique mode, markers are managed by refreshMap()
-        // Only add markers directly when in "ALL" mode
-        if (showUniqueOnly) {
-            return
-        }
-        
         val point = GeoPoint(lat, lon)
         val marker = Marker(mapView)
         marker.position = point
