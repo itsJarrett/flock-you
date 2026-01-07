@@ -578,7 +578,7 @@ void wifi_sniffer_packet_handler(void* buff, wifi_promiscuous_pkt_type_t type)
     
     // Check for probe requests (subtype 0x04) and beacons (subtype 0x08)
     uint8_t frame_type = (hdr->frame_ctrl & 0xFF) >> 2;
-    if (frame_type != 0x20 && frame_type != 0x80) { // Probe request or beacon
+    if (frame_type != 0x10 && frame_type != 0x20) { // Probe request (0x10) or beacon (0x20)
         return;
     }
     
@@ -586,7 +586,7 @@ void wifi_sniffer_packet_handler(void* buff, wifi_promiscuous_pkt_type_t type)
     char ssid[33] = {0};
     uint8_t *payload = (uint8_t *)ipkt + 24; // Skip MAC header
     
-    if (frame_type == 0x20) { // Probe request
+    if (frame_type == 0x10) { // Probe request
         payload += 0; // Probe requests start with SSID immediately
     } else { // Beacon frame
         payload += 12; // Skip fixed parameters in beacon
@@ -600,7 +600,7 @@ void wifi_sniffer_packet_handler(void* buff, wifi_promiscuous_pkt_type_t type)
     
     // Check if SSID matches our patterns
     if (strlen(ssid) > 0 && check_ssid_pattern(ssid)) {
-        const char* detection_type = (frame_type == 0x20) ? "probe_request" : "beacon";
+        const char* detection_type = (frame_type == 0x10) ? "probe_request" : "beacon";
         output_wifi_detection_json(ssid, hdr->addr2, ppkt->rx_ctrl.rssi, detection_type);
         
         if (!triggered) {
@@ -615,7 +615,7 @@ void wifi_sniffer_packet_handler(void* buff, wifi_promiscuous_pkt_type_t type)
     
     // Check MAC address
     if (check_mac_prefix(hdr->addr2)) {
-        const char* detection_type = (frame_type == 0x20) ? "probe_request_mac" : "beacon_mac";
+        const char* detection_type = (frame_type == 0x10) ? "probe_request_mac" : "beacon_mac";
         output_wifi_detection_json(ssid[0] ? ssid : "hidden", hdr->addr2, ppkt->rx_ctrl.rssi, detection_type);
         
         if (!triggered) {
