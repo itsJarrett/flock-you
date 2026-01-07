@@ -7,6 +7,7 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
+import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
 import android.app.NotificationChannel
@@ -14,6 +15,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.AlertDialog
 import android.content.Intent
+import android.content.ServiceConnection
 import androidx.core.app.NotificationCompat
 import androidx.core.app.Person
 import androidx.core.graphics.drawable.IconCompat
@@ -24,10 +26,12 @@ import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
+import android.os.IBinder
 import android.os.Looper
 import android.os.ParcelUuid
 import android.util.Log
 import android.widget.Button
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import android.widget.ScrollView
@@ -46,6 +50,8 @@ import org.osmdroid.tileprovider.tilesource.XYTileSource
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.MapEventsOverlay
+import org.osmdroid.events.MapEventsReceiver
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 
@@ -78,10 +84,40 @@ class MainActivity : AppCompatActivity(), LocationListener {
     
     private var locationManager: LocationManager? = null
     private var currentLocation: Location? = null
-    
+    private var locationService: LocationTrackingService? = null
+    private var isLocationServiceBound = false
+
     // UUIDs from the ESP32 code
     private val SERVICE_UUID = UUID.fromString("6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
     private val CHARACTERISTIC_TX_UUID = UUID.fromString("6E400003-B5A3-F393-E0A9-E50E24DCCA9E")
+
+    private val serviceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+            val binder = service as LocationTrackingService.LocalBinder
+            locationService = binder.getService()
+            isLocationServiceBound = true
+
+            // Set callback to receive location updates
+            locationService?.setLocationCallback { location ->
+                runOnUiThread {
+                    onLocationChanged(location)
+                }
+            }
+
+            // Get current location immediately
+            locationService?.getCurrentLocation()?.let {
+                onLocationChanged(it)
+            }
+
+            Log.d("FlockYou", "Location service connected")
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            locationService = null
+            isLocationServiceBound = false
+            Log.d("FlockYou", "Location service disconnected")
+        }
+    }
 
     private val scanCallback = object : ScanCallback() {
         @SuppressLint("MissingPermission")
@@ -278,19 +314,26 @@ class MainActivity : AppCompatActivity(), LocationListener {
                     // Get device category and manufacturer
                     val deviceCategory = json.optString("device_category", "UNKNOWN")
                     val manufacturer = json.optString("manufacturer", "Unknown")
+                    val deviceName = json.optString("device_name", "Unknown")
                     val category = DeviceCategoryUtil.getCategoryFromJson(deviceCategory)
-                    val categoryColor = DeviceCategoryUtil.getCategoryColor(category)
                     val categoryName = DeviceCategoryUtil.getCategoryName(category)
                     val categoryIcon = DeviceCategoryUtil.getCategoryIcon(category)
-                    
-                    // Use Repository
-                    val info = DetectionRepository.addDetection(mac, rssi, currentLocation)
-                    
-                    // Add marker to map
+                    val threatLevel = DeviceCategoryUtil.getThreatLevel(category)
+
+                    // Use Repository with full device information
+                    val info = DetectionRepository.addDetection(
+                        mac = mac,
+                        rssi = rssi,
+                        location = currentLocation,
+                        manufacturer = manufacturer,
+                        deviceName = deviceName,
+                        deviceCategory = deviceCategory,
+                        threatLevel = threatLevel
+                    )
+
+                    // Add marker to map with detailed info
                     if (info.lastLat != null && info.lastLon != null) {
-                        val title = "$categoryIcon $categoryName"
-                        val snippet = "$manufacturer | RSSI: $rssi"
-                        addMapMarker(info.lastLat!!, info.lastLon!!, title, snippet)
+                        addMapMarkerWithDetails(info)
                     }
                     
                     val countStr = "Count: ${info.count}"
@@ -374,9 +417,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
         
         // Add markers for loaded detections
         for (info in DetectionRepository.detections.values) {
-            if (info.lastLat != null && info.lastLon != null) {
-                addMapMarker(info.lastLat!!, info.lastLon!!, "History: ${info.mac}", "Count: ${info.count}")
-            }
+            addMapMarkerWithDetails(info)
         }
 
         scanButton.setOnClickListener {
@@ -409,6 +450,23 @@ class MainActivity : AppCompatActivity(), LocationListener {
             permissionsToRequest.add(Manifest.permission.ACCESS_COARSE_LOCATION)
         }
 
+        // Request background location (Android 10+)
+        // Note: This must be requested separately after foreground location on Android 11+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                // Only request if we already have foreground location
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                    // Show explanation before requesting background location
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        // Android 11+ requires separate request
+                        showBackgroundLocationDialog()
+                    } else {
+                        permissionsToRequest.add(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                    }
+                }
+            }
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
                 permissionsToRequest.add(Manifest.permission.BLUETOOTH_SCAN)
@@ -430,6 +488,38 @@ class MainActivity : AppCompatActivity(), LocationListener {
             startScan()
         }
     }
+
+    private fun showBackgroundLocationDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("Background Location Required")
+            .setMessage(
+                "To track device locations when the app is in the background or closed, " +
+                "we need access to your location all the time.\n\n" +
+                "On the next screen, please select 'Allow all the time'."
+            )
+            .setPositiveButton("Continue") { _, _ ->
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    requestBackgroundLocationLauncher.launch(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION))
+                }
+            }
+            .setNegativeButton("Not Now") { _, _ ->
+                Toast.makeText(this, "Background location tracking disabled", Toast.LENGTH_LONG).show()
+                startScan() // Continue without background location
+            }
+            .show()
+    }
+
+    private val requestBackgroundLocationLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
+            val granted = permissions[Manifest.permission.ACCESS_BACKGROUND_LOCATION] ?: false
+            if (granted) {
+                Toast.makeText(this, "Background location enabled", Toast.LENGTH_SHORT).show()
+                log("Background location permission granted")
+            } else {
+                Toast.makeText(this, "Background location denied - tracking will stop when app closes", Toast.LENGTH_LONG).show()
+                log("Background location permission denied")
+            }
+        }
 
     @SuppressLint("MissingPermission")
     private fun startScan() {
@@ -461,9 +551,9 @@ class MainActivity : AppCompatActivity(), LocationListener {
         isScanning = true
         updateStatus("Scanning...")
         scanButton.text = "STOP"
-        
-        startLocationUpdates()
-        
+
+        startLocationService()
+
         // Scan for either the UUID or the Name
         scanner.startScan(listOf(filter, nameFilter), settings, scanCallback)
         
@@ -477,9 +567,9 @@ class MainActivity : AppCompatActivity(), LocationListener {
         val scanner = bluetoothAdapter?.bluetoothLeScanner
         scanner?.stopScan(scanCallback)
         
-        // Don't stop location updates if we are connected/connecting, only if fully stopping
+        // Don't stop location service if we are connected/connecting, only if fully stopping
         if (!foundDevice) {
-            stopLocationUpdates()
+            stopLocationService()
             isScanning = false
             scanButton.text = "CONNECT"
             updateStatus("Disconnected")
@@ -498,7 +588,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
         }
         updateStatus("Disconnected")
         scanButton.text = "CONNECT"
-        stopLocationUpdates()
+        stopLocationService()
     }
 
     @SuppressLint("MissingPermission")
@@ -588,55 +678,46 @@ class MainActivity : AppCompatActivity(), LocationListener {
         }
     }
     
-    @SuppressLint("MissingPermission")
-    private fun startLocationUpdates() {
+    private fun startLocationService() {
         try {
-            val providers = locationManager?.allProviders ?: emptyList()
-            
-            // Use GPS provider if available
-            if (providers.contains(LocationManager.GPS_PROVIDER)) {
-                locationManager?.requestLocationUpdates(
-                    LocationManager.GPS_PROVIDER,
-                    2000L, // 2 seconds
-                    5f,    // 5 meters
-                    this
-                )
-                log("GPS location updates started")
+            val intent = Intent(this, LocationTrackingService::class.java).apply {
+                action = LocationTrackingService.ACTION_START_LOCATION_TRACKING
             }
-            
-            // Also try network provider for faster fix (if available)
-            if (providers.contains(LocationManager.NETWORK_PROVIDER)) {
-                locationManager?.requestLocationUpdates(
-                    LocationManager.NETWORK_PROVIDER,
-                    2000L,
-                    5f,
-                    this
-                )
-                log("Network location updates started")
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
             }
-            
-            // Try fused provider on newer devices
-            if (providers.contains(LocationManager.FUSED_PROVIDER)) {
-                locationManager?.requestLocationUpdates(
-                    LocationManager.FUSED_PROVIDER,
-                    2000L,
-                    5f,
-                    this
-                )
-                log("Fused location updates started")
-            }
-            
-            if (providers.isEmpty()) {
-                log("No location providers available")
-            }
+
+            // Bind to service to receive location updates
+            val bindIntent = Intent(this, LocationTrackingService::class.java)
+            bindService(bindIntent, serviceConnection, Context.BIND_AUTO_CREATE)
+
+            log("Location tracking service started")
         } catch (e: Exception) {
-            log("Error starting location updates: ${e.message}")
+            log("Error starting location service: ${e.message}")
         }
     }
 
-    private fun stopLocationUpdates() {
-        locationManager?.removeUpdates(this)
-        log("Location updates stopped")
+    private fun stopLocationService() {
+        try {
+            // Unbind from service
+            if (isLocationServiceBound) {
+                unbindService(serviceConnection)
+                isLocationServiceBound = false
+            }
+
+            // Stop service
+            val intent = Intent(this, LocationTrackingService::class.java).apply {
+                action = LocationTrackingService.ACTION_STOP_LOCATION_TRACKING
+            }
+            startService(intent)
+
+            log("Location tracking service stopped")
+        } catch (e: Exception) {
+            log("Error stopping location service: ${e.message}")
+        }
     }
 
     override fun onLocationChanged(location: Location) {
@@ -717,62 +798,16 @@ class MainActivity : AppCompatActivity(), LocationListener {
     }
     
     private fun refreshMap() {
-        if (showUniqueOnly) {
-            // UNIQUE mode: Clear and rebuild with one marker per device
-            val toRemove = mapView.overlays.filter { it != myLocationOverlay && it != currentLocationMarker }
-            mapView.overlays.removeAll(toRemove)
-            mapMarkers.clear()
-            
-            // Show only latest position for each unique device
-            DetectionRepository.detections.values.forEach { detection ->
-                if (detection.lastLat != null && detection.lastLon != null) {
-                    val category = DeviceCategoryUtil.getCategoryFromMac(detection.mac)
-                    val categoryIcon = DeviceCategoryUtil.getCategoryIcon(category)
-                    val categoryName = DeviceCategoryUtil.getCategoryName(category)
-                    
-                    val title = "$categoryIcon $categoryName"
-                    val snippet = "${detection.mac} | Count: ${detection.count}"
-                    
-                    val point = GeoPoint(detection.lastLat!!, detection.lastLon!!)
-                    val marker = Marker(mapView)
-                    marker.position = point
-                    marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                    marker.title = title
-                    marker.snippet = snippet
-                    mapView.overlays.add(marker)
-                    mapMarkers.add(marker)
-                }
-            }
-        } else {
-            // ALL mode: Clear and show all detection positions (including multiple per device)
-            val toRemove = mapView.overlays.filter { it != myLocationOverlay && it != currentLocationMarker }
-            mapView.overlays.removeAll(toRemove)
-            mapMarkers.clear()
-            
-            // Rebuild all markers from detection history
-            // Note: We only have latest position per device in DetectionRepository
-            // So ALL mode will show same as UNIQUE until we get new detections
-            DetectionRepository.detections.values.forEach { detection ->
-                if (detection.lastLat != null && detection.lastLon != null) {
-                    val category = DeviceCategoryUtil.getCategoryFromMac(detection.mac)
-                    val categoryIcon = DeviceCategoryUtil.getCategoryIcon(category)
-                    val categoryName = DeviceCategoryUtil.getCategoryName(category)
-                    
-                    val title = "$categoryIcon $categoryName"
-                    val snippet = "${detection.mac} | RSSI: ${detection.lastRssi}"
-                    
-                    val point = GeoPoint(detection.lastLat!!, detection.lastLon!!)
-                    val marker = Marker(mapView)
-                    marker.position = point
-                    marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                    marker.title = title
-                    marker.snippet = snippet
-                    mapView.overlays.add(marker)
-                    mapMarkers.add(marker)
-                }
-            }
+        // Clear all markers except current location
+        val toRemove = mapView.overlays.filter { it != myLocationOverlay && it != currentLocationMarker }
+        mapView.overlays.removeAll(toRemove)
+        mapMarkers.clear()
+
+        // Add markers for all detections with detailed info windows
+        DetectionRepository.detections.values.forEach { detection ->
+            addMapMarkerWithDetails(detection)
         }
-        
+
         mapView.invalidate()
     }
 
@@ -822,12 +857,27 @@ class MainActivity : AppCompatActivity(), LocationListener {
         mapView.setTileSource(customTileSource)
         mapView.setMultiTouchControls(true)
         mapView.controller.setZoom(18.0)  // Closer zoom for street-level view while driving
-        
+
         // Set a default center (US center) until we get actual location
         // This prevents showing ocean at 0,0
         val defaultPoint = GeoPoint(39.8283, -98.5795)
         mapView.controller.setCenter(defaultPoint)
-        
+
+        // Add map tap listener to close InfoWindows when tapping outside
+        val mapEventsReceiver = object : MapEventsReceiver {
+            override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean {
+                // Close all open InfoWindows when tapping on empty map area
+                org.osmdroid.views.overlay.infowindow.InfoWindow.closeAllInfoWindowsOn(mapView)
+                return false
+            }
+
+            override fun longPressHelper(p: GeoPoint?): Boolean {
+                return false
+            }
+        }
+        val mapEventsOverlay = MapEventsOverlay(mapEventsReceiver)
+        mapView.overlays.add(0, mapEventsOverlay)  // Add at index 0 so it's below markers
+
         // Add MyLocation overlay with continuous tracking
         myLocationOverlay = MyLocationNewOverlay(GpsMyLocationProvider(this), mapView)
         myLocationOverlay?.enableMyLocation()
@@ -878,6 +928,118 @@ class MainActivity : AppCompatActivity(), LocationListener {
         }
     }
     
+    // Custom InfoWindow class for detailed device information
+    inner class DetailedInfoWindow(mapView: MapView) : org.osmdroid.views.overlay.infowindow.InfoWindow(R.layout.marker_info_window, mapView) {
+
+        override fun onOpen(item: Any?) {
+            val marker = item as? Marker ?: return
+            val detection = marker.relatedObject as? DetectionInfo ?: return
+
+            // Capture mutable properties to local variables for thread safety
+            val deviceCategoryStr = detection.deviceCategory
+            val manufacturerStr = detection.manufacturer
+            val deviceNameStr = detection.deviceName
+            val threatLevelStr = detection.threatLevel
+
+            // Set up close button
+            val closeButton = mView.findViewById<TextView>(R.id.infoWindowClose)
+            closeButton.setOnClickListener {
+                close()
+            }
+
+            // Title with icon
+            val titleView = mView.findViewById<TextView>(R.id.infoWindowTitle)
+            val category = DeviceCategoryUtil.getCategoryFromJson(deviceCategoryStr)
+            val categoryIcon = DeviceCategoryUtil.getCategoryIcon(category)
+            val categoryName = DeviceCategoryUtil.getCategoryName(category)
+            titleView.text = "$categoryIcon $categoryName"
+
+            // MAC Address
+            val macView = mView.findViewById<TextView>(R.id.infoWindowMac)
+            macView.text = detection.mac
+
+            // Manufacturer
+            val manufacturerView = mView.findViewById<TextView>(R.id.infoWindowManufacturer)
+            val manufacturerRow = mView.findViewById<LinearLayout>(R.id.manufacturerRow)
+            if (manufacturerStr != null) {
+                manufacturerView.text = manufacturerStr
+                manufacturerRow.visibility = View.VISIBLE
+            } else {
+                manufacturerRow.visibility = View.GONE
+            }
+
+            // Device Name
+            val deviceNameView = mView.findViewById<TextView>(R.id.infoWindowDeviceName)
+            val deviceNameRow = mView.findViewById<LinearLayout>(R.id.deviceNameRow)
+            if (deviceNameStr != null && deviceNameStr != "Unknown") {
+                deviceNameView.text = deviceNameStr
+                deviceNameRow.visibility = View.VISIBLE
+            } else {
+                deviceNameRow.visibility = View.GONE
+            }
+
+            // Category
+            val categoryView = mView.findViewById<TextView>(R.id.infoWindowCategory)
+            val categoryRow = mView.findViewById<LinearLayout>(R.id.categoryRow)
+            if (deviceCategoryStr != null) {
+                categoryView.text = deviceCategoryStr.replace("_", " ")
+                categoryRow.visibility = View.VISIBLE
+            } else {
+                categoryRow.visibility = View.GONE
+            }
+
+            // Threat Level
+            val threatLevelView = mView.findViewById<TextView>(R.id.infoWindowThreatLevel)
+            val threatLevelRow = mView.findViewById<LinearLayout>(R.id.threatLevelRow)
+            if (threatLevelStr != null) {
+                threatLevelView.text = threatLevelStr
+                val color = when (threatLevelStr) {
+                    "CRITICAL" -> 0xFFDC2626.toInt()
+                    "HIGH" -> 0xFFFF8C00.toInt()
+                    "MEDIUM" -> 0xFFFFAA00.toInt()
+                    "LOW" -> 0xFF10B981.toInt()
+                    else -> 0xFF9CA3AF.toInt()
+                }
+                threatLevelView.setTextColor(color)
+                threatLevelRow.visibility = View.VISIBLE
+            } else {
+                threatLevelRow.visibility = View.GONE
+            }
+
+            // RSSI
+            val rssiView = mView.findViewById<TextView>(R.id.infoWindowRssi)
+            rssiView.text = "${detection.lastRssi} dBm"
+
+            // Detection Count
+            val countView = mView.findViewById<TextView>(R.id.infoWindowCount)
+            countView.text = detection.count.toString()
+
+            // First Seen
+            val firstSeenView = mView.findViewById<TextView>(R.id.infoWindowFirstSeen)
+            val firstSeenTime = java.text.SimpleDateFormat("MMM dd, HH:mm:ss", java.util.Locale.getDefault())
+                .format(java.util.Date(detection.firstSeen))
+            firstSeenView.text = firstSeenTime
+
+            // Last Seen
+            val lastSeenView = mView.findViewById<TextView>(R.id.infoWindowLastSeen)
+            val lastSeenTime = java.text.SimpleDateFormat("MMM dd, HH:mm:ss", java.util.Locale.getDefault())
+                .format(java.util.Date(detection.lastSeen))
+            lastSeenView.text = lastSeenTime
+
+            // GPS Coordinates
+            val gpsView = mView.findViewById<TextView>(R.id.infoWindowGps)
+            if (detection.lastLat != null && detection.lastLon != null) {
+                gpsView.text = "${String.format("%.5f", detection.lastLat)}, ${String.format("%.5f", detection.lastLon)}"
+            } else {
+                gpsView.text = "No GPS data"
+            }
+        }
+
+        override fun onClose() {
+            // Nothing to clean up
+        }
+    }
+
     private fun addMapMarker(lat: Double, lon: Double, title: String, snippet: String) {
         val point = GeoPoint(lat, lon)
         val marker = Marker(mapView)
@@ -890,12 +1052,50 @@ class MainActivity : AppCompatActivity(), LocationListener {
         mapView.invalidate()
     }
 
+    // New version that accepts DetectionInfo and uses custom InfoWindow
+    private fun addMapMarkerWithDetails(detection: DetectionInfo) {
+        if (detection.lastLat == null || detection.lastLon == null) return
+
+        val point = GeoPoint(detection.lastLat!!, detection.lastLon!!)
+        val marker = Marker(mapView)
+        marker.position = point
+        marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+
+        // Set basic title/snippet for fallback
+        val category = DeviceCategoryUtil.getCategoryFromJson(detection.deviceCategory)
+        val categoryIcon = DeviceCategoryUtil.getCategoryIcon(category)
+        val categoryName = DeviceCategoryUtil.getCategoryName(category)
+        marker.title = "$categoryIcon $categoryName"
+        marker.snippet = detection.mac
+
+        // Attach detection info for custom InfoWindow
+        marker.relatedObject = detection
+
+        // Set custom InfoWindow
+        marker.infoWindow = DetailedInfoWindow(mapView)
+
+        mapView.overlays.add(marker)
+        mapMarkers.add(marker)
+        mapView.invalidate()
+    }
+
     override fun onDestroy() {
         super.onDestroy()
+
+        // Clean up location service binding
+        if (isLocationServiceBound) {
+            try {
+                unbindService(serviceConnection)
+                isLocationServiceBound = false
+            } catch (e: Exception) {
+                Log.e("FlockYou", "Error unbinding service: ${e.message}")
+            }
+        }
+
         // osmdroid cleanup
         myLocationOverlay?.disableMyLocation()
         mapView.onDetach()
-        
+
         if (ActivityCompat.checkSelfPermission(
                 this,
                 Manifest.permission.BLUETOOTH_CONNECT

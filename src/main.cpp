@@ -47,16 +47,75 @@ static unsigned long last_ble_scan = 0;
 // ============================================================================
 // DETECTION PATTERNS (Extracted from Real Flock Safety Device Databases)
 // ============================================================================
+//
+// MULTI-LAYER DETECTION STRATEGY:
+// --------------------------------
+// This firmware uses a 3-layer approach to maximize detection capabilities:
+//
+// LAYER 1: MAC Address OUI Detection (Most Reliable)
+//   - Detects via WiFi (longer range: 100-300m+) OR BLE (shorter range: 10-100m)
+//   - MAC prefix uniquely identifies manufacturer
+//   - HIGH CONFIDENCE regardless of protocol
+//
+// LAYER 2: WiFi SSID Pattern Matching (Medium-Long Range)
+//   - Detects via WiFi probe requests and beacons
+//   - Range: 100-300m+ depending on power
+//   - MEDIUM-HIGH CONFIDENCE (SSIDs can be spoofed but unlikely)
+//   - Can detect devices even without matching OUI
+//
+// LAYER 3: BLE Device Name Pattern Matching (Short Range)
+//   - Detects via BLE advertisements
+//   - Range: 10-100m (close proximity)
+//   - HIGH CONFIDENCE for positive identification
+//   - Can detect devices even without matching OUI
+//
+// DETECTION PRIORITY:
+//   1. OUI match (MAC) = immediate categorization
+//   2. SSID/Name match = override or refine categorization
+//   3. If both match = HIGHEST CONFIDENCE detection
+//
+// ============================================================================
 
 // WiFi SSID patterns to detect (case-insensitive)
+// These patterns maximize detection across all vendors
 static const char* wifi_ssid_patterns[] = {
-    "flock",        // Standard Flock Safety naming
-    "Flock",        // Capitalized variant
-    "FLOCK",        // All caps variant
-    "FS Ext Battery", // Flock Safety Extended Battery devices
-    "Penguin",      // Penguin surveillance devices
-    "Pigvision",    // Pigvision surveillance systems
-    "Axon"          // Axon Body Cam / Fleet
+    // Flock Safety & Surveillance
+    "flock", "Flock", "FLOCK",
+    "FS Ext Battery",
+    "Falcon",           // Flock Falcon cameras
+    "Penguin",          // Penguin surveillance devices
+    "Pigvision",        // Pigvision surveillance systems
+
+    // Axon (Law Enforcement)
+    "Axon", "axon",
+    "Axon Body",
+    "Axon Fleet",
+
+    // Ring (Security Cameras)
+    "Ring", "ring",
+    "Ring-",            // Ring devices often use "Ring-XXXXX"
+
+    // Cradlepoint (Network Equipment)
+    "Cradlepoint", "cradlepoint",
+    "CP ",              // Cradlepoint prefix
+
+    // DJI Drones
+    "DJI", "dji",
+    "Mavic",
+    "Phantom",
+    "Mini",
+    "Air",              // DJI Air series
+    "FPV",              // DJI FPV
+
+    // Parrot Drones
+    "Parrot", "parrot",
+    "Anafi",
+    "Bebop",
+    "Disco",
+
+    // Skydio Drones
+    "Skydio", "skydio",
+    "SKYDIO"
 };
 
 // ============================================================================
@@ -66,17 +125,21 @@ static const char* wifi_ssid_patterns[] = {
 // FLOCK SAFETY & SURVEILLANCE SYSTEMS
 static const char* flock_safety_ouis[] = {
     // FS Ext Battery devices
-    "58:8e:81", "cc:cc:cc", "ec:1b:bd", "90:35:ea", "04:0d:84", 
+    "58:8e:81", "cc:cc:cc", "ec:1b:bd", "90:35:ea", "04:0d:84",
     "f0:82:c0", "1c:34:f1", "38:5b:44", "94:34:69", "b4:e3:f9",
-    
+
     // Flock WiFi devices
     "70:c9:4e", "3c:91:80", "d8:f3:bc", "80:30:49", "14:5a:fc",
     "74:4c:a1", "08:3a:88", "9c:2f:9d", "94:08:53", "e4:aa:ea",
-    
+
     // Flock Safety official OUI (ALPR/Falcon/Raven)
-    "b4:1e:52",
-    
-    // Cradlepoint routers (used in surveillance systems)
+    "b4:1e:52"
+};
+
+// CRADLEPOINT (Network Equipment - used by surveillance systems)
+// Cradlepoint routers are commonly used in Flock Safety and other surveillance deployments
+// They should be detected and correctly identified as "Cradlepoint" manufacturer
+static const char* cradlepoint_ouis[] = {
     "00:30:44", "00:e0:1c"
 };
 
@@ -110,58 +173,85 @@ static const char* skydio_ouis[] = {
 };
 
 // Combined list for quick iteration (legacy compatibility)
+// Includes Cradlepoint as they're network equipment used in surveillance infrastructure
 static const char* mac_prefixes[] = {
     // Flock Safety & Surveillance
-    "58:8e:81", "cc:cc:cc", "ec:1b:bd", "90:35:ea", "04:0d:84", 
+    "58:8e:81", "cc:cc:cc", "ec:1b:bd", "90:35:ea", "04:0d:84",
     "f0:82:c0", "1c:34:f1", "38:5b:44", "94:34:69", "b4:e3:f9",
     "70:c9:4e", "3c:91:80", "d8:f3:bc", "80:30:49", "14:5a:fc",
     "74:4c:a1", "08:3a:88", "9c:2f:9d", "94:08:53", "e4:aa:ea",
-    "b4:1e:52", "00:30:44", "00:e0:1c",
-    
+    "b4:1e:52",
+
+    // Cradlepoint (Network Equipment used by surveillance systems)
+    "00:30:44", "00:e0:1c",
+
     // Axon
     "00:25:df",
-    
+
     // Ring
     "18:7f:88", "24:2b:d6", "34:3e:a4", "54:e0:19",
     "5c:47:5e", "64:9a:63", "90:48:6c", "9c:76:13",
     "ac:9f:c3", "c4:db:ad", "cc:3b:fb",
-    
+
     // DJI
     "0c:9a:e6", "8c:58:23", "04:a8:5a", "58:b8:58",
     "e4:7a:2c", "60:60:1f", "48:1c:b9", "34:d2:62",
-    
+
     // Parrot
     "00:12:1c", "00:26:7e", "90:03:b7", "90:3a:e6", "a0:14:3d",
-    
+
     // Skydio
     "38:1d:14"
 };
 
 // Device name patterns for BLE advertisement detection
+// BLE has shorter range (10-100m) so these are HIGH CONFIDENCE close-range detections
 static const char* device_name_patterns[] = {
     // Flock Safety & Surveillance
     "FS Ext Battery",  // Flock Safety Extended Battery
-    "Penguin",         // Penguin surveillance devices
     "Flock",           // Standard Flock Safety devices
-    "Pigvision",       // Pigvision surveillance systems
     "Falcon",          // Flock Falcon cameras
     "Raven",           // Flock Raven gunshot detection
-    
-    // Law Enforcement
+    "Penguin",         // Penguin surveillance devices
+    "Pigvision",       // Pigvision surveillance systems
+
+    // Axon (Law Enforcement)
     "Axon",            // Axon Body Cam / Fleet
-    
-    // Security Cameras
+    "Axon Body",       // Axon Body Cam specific
+    "Axon Fleet",      // Axon Fleet system
+    "Body 2",          // Axon Body 2
+    "Body 3",          // Axon Body 3
+    "Body 4",          // Axon Body 4
+
+    // Ring (Security Cameras)
     "Ring",            // Ring Doorbell / Camera
-    
-    // Drones
+    "Ring-",           // Ring devices with suffix
+
+    // Cradlepoint (Network Equipment)
+    "Cradlepoint",     // Cradlepoint routers
+    "IBR",             // Cradlepoint IBR series
+    "AER",             // Cradlepoint AER series
+
+    // DJI Drones
     "DJI",             // DJI drones
     "Mavic",           // DJI Mavic series
     "Phantom",         // DJI Phantom series
     "Mini",            // DJI Mini series
+    "Air",             // DJI Air series
+    "FPV",             // DJI FPV
+    "Inspire",         // DJI Inspire
+    "Matrice",         // DJI Matrice (commercial)
+
+    // Parrot Drones
     "Parrot",          // Parrot drones
     "Anafi",           // Parrot Anafi
     "Bebop",           // Parrot Bebop
-    "Skydio"           // Skydio drones
+    "Disco",           // Parrot Disco
+
+    // Skydio Drones
+    "Skydio",          // Skydio drones
+    "S2",              // Skydio 2
+    "X2"               // Skydio X2 (commercial/enterprise)
 };
 
 // ============================================================================
@@ -212,13 +302,12 @@ static const char* raven_service_uuids[] = {
 
 enum DetectionType {
     NONE = 0,
-    WIFI_CAMERA = 1,
-    BLE_CAMERA = 2,
-    AXON_SYSTEM = 3,
-    RAVEN_GUNSHOT = 4,
-    RING_DEVICE = 5,
-    DRONE_CONSUMER = 6,
-    DRONE_COMMERCIAL = 7
+    FLOCK_SAFETY = 1,
+    AXON = 2,
+    RAVEN = 3,
+    RING = 4,
+    CRADLEPOINT = 5,
+    DRONE = 6
 };
 
 static DetectionType current_detection_type = NONE;
@@ -317,17 +406,43 @@ void output_wifi_detection_json(const char* ssid, const uint8_t* mac, int rssi, 
     DetectionType resolved_type = categorize_by_mac(mac_prefix);
     
     // Override with SSID if it gives us more specific info
-    if (ssid && strcasestr(ssid, "axon")) {
-        resolved_type = AXON_SYSTEM;
-    } else if (ssid && strcasestr(ssid, "ring")) {
-        resolved_type = RING_DEVICE;
-    } else if (ssid && (strcasestr(ssid, "dji") || strcasestr(ssid, "mavic") || strcasestr(ssid, "phantom"))) {
-        resolved_type = DRONE_CONSUMER;
+    // WiFi detection = longer range (100-300m+), medium-high confidence
+    if (ssid && strlen(ssid) > 0) {
+        // Check Raven first (highest priority)
+        if (strcasestr(ssid, "raven")) {
+            resolved_type = RAVEN;
+        }
+        // Check Axon (law enforcement)
+        else if (strcasestr(ssid, "axon") || strcasestr(ssid, "body 2") || strcasestr(ssid, "body 3")) {
+            resolved_type = AXON;
+        }
+        // Check Ring
+        else if (strcasestr(ssid, "ring")) {
+            resolved_type = RING;
+        }
+        // Check Cradlepoint
+        else if (strcasestr(ssid, "cradlepoint") || strcasestr(ssid, "cp ")) {
+            resolved_type = CRADLEPOINT;
+        }
+        // Check Drones (DJI, Parrot, Skydio)
+        else if (strcasestr(ssid, "dji") || strcasestr(ssid, "mavic") || strcasestr(ssid, "phantom") ||
+                 strcasestr(ssid, "mini") || strcasestr(ssid, "air") || strcasestr(ssid, "fpv") ||
+                 strcasestr(ssid, "inspire") || strcasestr(ssid, "matrice") ||
+                 strcasestr(ssid, "parrot") || strcasestr(ssid, "anafi") || strcasestr(ssid, "bebop") ||
+                 strcasestr(ssid, "disco") || strcasestr(ssid, "skydio")) {
+            resolved_type = DRONE;
+        }
+        // Check Flock Safety (keep this last as it's most common)
+        else if (strcasestr(ssid, "flock") || strcasestr(ssid, "falcon") ||
+                 strcasestr(ssid, "penguin") || strcasestr(ssid, "pigvision") ||
+                 strcasestr(ssid, "fs ext battery")) {
+            resolved_type = FLOCK_SAFETY;
+        }
     }
-    
-    // Fallback to generic camera if no specific match
+
+    // Fallback to Flock Safety if no specific match
     if (resolved_type == NONE) {
-        resolved_type = WIFI_CAMERA;
+        resolved_type = FLOCK_SAFETY;
     }
 
     update_detection_state(resolved_type);
@@ -336,12 +451,18 @@ void output_wifi_detection_json(const char* ssid, const uint8_t* mac, int rssi, 
     const char* manufacturer = get_manufacturer_name(mac_prefix);
 
     DynamicJsonDocument doc(2048);
-    
+
     // Core detection info
     doc["timestamp"] = millis();
     doc["detection_time"] = String(millis() / 1000.0, 3) + "s";
     doc["protocol"] = "wifi";
     doc["detection_method"] = detection_type;
+
+    // Detection range and confidence
+    // WiFi = longer range (100-300m+), medium-high confidence
+    doc["detection_range"] = "MEDIUM_TO_FAR";
+    doc["estimated_distance"] = "100-300m";
+
     doc["alert_level"] = "HIGH";
     doc["device_category"] = "FLOCK_SAFETY";
     
@@ -363,15 +484,16 @@ void output_wifi_detection_json(const char* ssid, const uint8_t* mac, int rssi, 
     doc["vendor_oui"] = mac_prefix;
     doc["manufacturer"] = manufacturer;
     
-    // Device category based on detection type
+    // Device category based on detection type (vendor-specific with grouping)
     const char* device_category_str;
     switch(resolved_type) {
-        case AXON_SYSTEM: device_category_str = "LAW_ENFORCEMENT"; break;
-        case RING_DEVICE: device_category_str = "SECURITY_CAMERA"; break;
-        case DRONE_CONSUMER: device_category_str = "CONSUMER_DRONE"; break;
-        case DRONE_COMMERCIAL: device_category_str = "COMMERCIAL_DRONE"; break;
-        case RAVEN_GUNSHOT: device_category_str = "GUNSHOT_DETECTION"; break;
-        default: device_category_str = "SURVEILLANCE_CAMERA"; break;
+        case FLOCK_SAFETY: device_category_str = "FLOCK_SAFETY"; break;
+        case AXON: device_category_str = "AXON"; break;
+        case RAVEN: device_category_str = "RAVEN"; break;
+        case RING: device_category_str = "RING"; break;
+        case CRADLEPOINT: device_category_str = "CRADLEPOINT"; break;
+        case DRONE: device_category_str = "DRONE"; break;
+        default: device_category_str = "UNKNOWN"; break;
     }
     doc["device_category"] = device_category_str;
     
@@ -397,9 +519,27 @@ void output_wifi_detection_json(const char* ssid, const uint8_t* mac, int rssi, 
         }
     }
     
-    // Detection summary
-    doc["detection_criteria"] = ssid_match && mac_match ? "SSID_AND_MAC" : (ssid_match ? "SSID_ONLY" : "MAC_ONLY");
-    doc["threat_score"] = ssid_match && mac_match ? 100 : (ssid_match || mac_match ? 85 : 70);
+    // Detection summary and confidence scoring
+    // Highest confidence = both MAC and SSID match
+    // High confidence = MAC match only (OUI is reliable)
+    // Medium confidence = SSID match only (can be spoofed)
+    if (ssid_match && mac_match) {
+        doc["detection_criteria"] = "SSID_AND_MAC";
+        doc["detection_confidence"] = "HIGHEST";
+        doc["threat_score"] = 100;
+    } else if (mac_match) {
+        doc["detection_criteria"] = "MAC_ONLY";
+        doc["detection_confidence"] = "HIGH";
+        doc["threat_score"] = 90;
+    } else if (ssid_match) {
+        doc["detection_criteria"] = "SSID_ONLY";
+        doc["detection_confidence"] = "MEDIUM";
+        doc["threat_score"] = 75;
+    } else {
+        doc["detection_criteria"] = "PATTERN_MATCH";
+        doc["detection_confidence"] = "MEDIUM";
+        doc["threat_score"] = 70;
+    }
     
     // Frame type details
     if (strcmp(detection_type, "probe_request") == 0 || strcmp(detection_type, "probe_request_mac") == 0) {
@@ -420,30 +560,95 @@ void output_wifi_detection_json(const char* ssid, const uint8_t* mac, int rssi, 
 
 void output_ble_detection_json(const char* mac, const char* name, int rssi, const char* detection_method)
 {
-    DetectionType resolved_type = BLE_CAMERA;
-    if (mac && strncasecmp(mac, "00:25:df", 8) == 0) {
-        resolved_type = AXON_SYSTEM;
-    } else if (name && strcasestr(name, "axon")) {
-        resolved_type = AXON_SYSTEM;
+    // Extract MAC prefix for categorization
+    char mac_prefix[9];
+    strncpy(mac_prefix, mac, 8);
+    mac_prefix[8] = '\0';
+
+    DetectionType resolved_type = categorize_by_mac(mac_prefix);
+
+    // Override with name if it gives us more specific info
+    // BLE detection = shorter range (10-100m), HIGH CONFIDENCE close proximity
+    if (name && strlen(name) > 0) {
+        // Check Raven first (highest priority - gunshot detection)
+        if (strcasestr(name, "raven")) {
+            resolved_type = RAVEN;
+        }
+        // Check Axon (law enforcement body cams)
+        else if (strcasestr(name, "axon") || strcasestr(name, "body 2") ||
+                 strcasestr(name, "body 3") || strcasestr(name, "body 4")) {
+            resolved_type = AXON;
+        }
+        // Check Ring (security cameras)
+        else if (strcasestr(name, "ring")) {
+            resolved_type = RING;
+        }
+        // Check Cradlepoint (network equipment)
+        else if (strcasestr(name, "cradlepoint") || strcasestr(name, "ibr") || strcasestr(name, "aer")) {
+            resolved_type = CRADLEPOINT;
+        }
+        // Check Drones (DJI, Parrot, Skydio)
+        else if (strcasestr(name, "dji") || strcasestr(name, "mavic") || strcasestr(name, "phantom") ||
+                 strcasestr(name, "mini") || strcasestr(name, "air") || strcasestr(name, "fpv") ||
+                 strcasestr(name, "inspire") || strcasestr(name, "matrice") ||
+                 strcasestr(name, "parrot") || strcasestr(name, "anafi") || strcasestr(name, "bebop") ||
+                 strcasestr(name, "disco") || strcasestr(name, "skydio") ||
+                 strcasestr(name, "s2") || strcasestr(name, "x2")) {
+            resolved_type = DRONE;
+        }
+        // Check Flock Safety (surveillance cameras)
+        else if (strcasestr(name, "flock") || strcasestr(name, "falcon") ||
+                 strcasestr(name, "penguin") || strcasestr(name, "pigvision") ||
+                 strcasestr(name, "fs ext battery")) {
+            resolved_type = FLOCK_SAFETY;
+        }
+    }
+
+    // Fallback to Flock Safety if no specific match
+    if (resolved_type == NONE) {
+        resolved_type = FLOCK_SAFETY;
     }
 
     update_detection_state(resolved_type);
     last_rssi = rssi;
 
     DynamicJsonDocument doc(2048);
-    
+
     // Core detection info
     doc["timestamp"] = millis();
     doc["detection_time"] = String(millis() / 1000.0, 3) + "s";
     doc["protocol"] = "bluetooth_le";
     doc["detection_method"] = detection_method;
+
+    // Detection range and confidence
+    // BLE = shorter range (10-100m), HIGH CONFIDENCE close proximity
+    doc["detection_range"] = "CLOSE";
+    doc["estimated_distance"] = "10-100m";
+    doc["proximity_confidence"] = "HIGH";
+
     doc["alert_level"] = "HIGH";
-    doc["device_category"] = "FLOCK_SAFETY";
-    
+
+    // Device category based on detection type (vendor-specific with grouping)
+    const char* device_category_str;
+    switch(resolved_type) {
+        case FLOCK_SAFETY: device_category_str = "FLOCK_SAFETY"; break;
+        case AXON: device_category_str = "AXON"; break;
+        case RAVEN: device_category_str = "RAVEN"; break;
+        case RING: device_category_str = "RING"; break;
+        case CRADLEPOINT: device_category_str = "CRADLEPOINT"; break;
+        case DRONE: device_category_str = "DRONE"; break;
+        default: device_category_str = "UNKNOWN"; break;
+    }
+    doc["device_category"] = device_category_str;
+
     // BLE specific info
     doc["mac_address"] = mac;
     doc["rssi"] = rssi;
     doc["signal_strength"] = rssi > -50 ? "STRONG" : (rssi > -70 ? "MEDIUM" : "WEAK");
+
+    // Get manufacturer name from OUI
+    const char* manufacturer = get_manufacturer_name(mac_prefix);
+    doc["manufacturer"] = manufacturer;
     
     // Device name info
     if (name && strlen(name) > 0) {
@@ -455,11 +660,8 @@ void output_ble_detection_json(const char* mac, const char* name, int rssi, cons
         doc["device_name_length"] = 0;
         doc["has_device_name"] = false;
     }
-    
-    // MAC address analysis
-    char mac_prefix[9];
-    strncpy(mac_prefix, mac, 8);
-    mac_prefix[8] = '\0';
+
+    // MAC address analysis (mac_prefix already extracted at top of function)
     doc["mac_prefix"] = mac_prefix;
     doc["vendor_oui"] = mac_prefix;
     
@@ -489,11 +691,28 @@ void output_ble_detection_json(const char* mac, const char* name, int rssi, cons
         }
     }
     
-    // Detection summary
-    doc["detection_criteria"] = name_match && mac_match ? "NAME_AND_MAC" : 
-                               (name_match ? "NAME_ONLY" : "MAC_ONLY");
-    doc["threat_score"] = name_match && mac_match ? 100 : 
-                         (name_match || mac_match ? 85 : 70);
+    // Detection summary and confidence scoring
+    // BLE = close range detection = inherently higher confidence
+    // Highest confidence = both MAC and name match
+    // High confidence = MAC match only (OUI is reliable)
+    // High confidence = Name match only (BLE names are fairly reliable at close range)
+    if (name_match && mac_match) {
+        doc["detection_criteria"] = "NAME_AND_MAC";
+        doc["detection_confidence"] = "HIGHEST";
+        doc["threat_score"] = 100;
+    } else if (mac_match) {
+        doc["detection_criteria"] = "MAC_ONLY";
+        doc["detection_confidence"] = "HIGH";
+        doc["threat_score"] = 90;
+    } else if (name_match) {
+        doc["detection_criteria"] = "NAME_ONLY";
+        doc["detection_confidence"] = "HIGH";
+        doc["threat_score"] = 85;
+    } else {
+        doc["detection_criteria"] = "PATTERN_MATCH";
+        doc["detection_confidence"] = "MEDIUM";
+        doc["threat_score"] = 70;
+    }
     
     // BLE advertisement type analysis
     doc["advertisement_type"] = "BLE_ADVERTISEMENT";
@@ -530,58 +749,69 @@ DetectionType categorize_by_mac(const char* mac_prefix)
 {
     // Check Raven (highest priority for gunshot detection)
     // This should be handled separately via BLE service UUIDs
-    
+
     // Check Axon
     for (int i = 0; i < sizeof(axon_ouis)/sizeof(axon_ouis[0]); i++) {
         if (strncasecmp(mac_prefix, axon_ouis[i], 8) == 0) {
-            return AXON_SYSTEM;
+            return AXON;
         }
     }
-    
+
+    // Check Cradlepoint (must be before Flock Safety check)
+    // Network equipment used by surveillance systems - detect and alert
+    for (int i = 0; i < sizeof(cradlepoint_ouis)/sizeof(cradlepoint_ouis[0]); i++) {
+        if (strncasecmp(mac_prefix, cradlepoint_ouis[i], 8) == 0) {
+            return CRADLEPOINT;
+        }
+    }
+
     // Check Flock Safety
     for (int i = 0; i < sizeof(flock_safety_ouis)/sizeof(flock_safety_ouis[0]); i++) {
         if (strncasecmp(mac_prefix, flock_safety_ouis[i], 8) == 0) {
-            return WIFI_CAMERA;  // Keep as WIFI_CAMERA for compatibility
+            return FLOCK_SAFETY;
         }
     }
-    
+
     // Check Ring
     for (int i = 0; i < sizeof(ring_ouis)/sizeof(ring_ouis[0]); i++) {
         if (strncasecmp(mac_prefix, ring_ouis[i], 8) == 0) {
-            return RING_DEVICE;
+            return RING;
         }
     }
-    
-    // Check DJI
+
+    // Check DJI (Drones)
     for (int i = 0; i < sizeof(dji_ouis)/sizeof(dji_ouis[0]); i++) {
         if (strncasecmp(mac_prefix, dji_ouis[i], 8) == 0) {
-            return DRONE_CONSUMER;
+            return DRONE;
         }
     }
-    
-    // Check Parrot
+
+    // Check Parrot (Drones)
     for (int i = 0; i < sizeof(parrot_ouis)/sizeof(parrot_ouis[0]); i++) {
         if (strncasecmp(mac_prefix, parrot_ouis[i], 8) == 0) {
-            return DRONE_CONSUMER;
+            return DRONE;
         }
     }
-    
-    // Check Skydio
+
+    // Check Skydio (Drones)
     for (int i = 0; i < sizeof(skydio_ouis)/sizeof(skydio_ouis[0]); i++) {
         if (strncasecmp(mac_prefix, skydio_ouis[i], 8) == 0) {
-            return DRONE_COMMERCIAL;
+            return DRONE;
         }
     }
-    
+
     return NONE;
 }
 
 // Get manufacturer name from MAC prefix
 const char* get_manufacturer_name(const char* mac_prefix)
 {
-    // Check all OUI arrays
+    // Check all OUI arrays - order matters for specificity
     for (int i = 0; i < sizeof(axon_ouis)/sizeof(axon_ouis[0]); i++) {
         if (strncasecmp(mac_prefix, axon_ouis[i], 8) == 0) return "Axon Enterprise";
+    }
+    for (int i = 0; i < sizeof(cradlepoint_ouis)/sizeof(cradlepoint_ouis[0]); i++) {
+        if (strncasecmp(mac_prefix, cradlepoint_ouis[i], 8) == 0) return "Cradlepoint";
     }
     for (int i = 0; i < sizeof(flock_safety_ouis)/sizeof(flock_safety_ouis[0]); i++) {
         if (strncasecmp(mac_prefix, flock_safety_ouis[i], 8) == 0) return "Flock Safety";
@@ -862,7 +1092,7 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
         // Check for Raven surveillance device service UUIDs
         char detected_service_uuid[41] = {0};
         if (check_raven_service_uuid(advertisedDevice, detected_service_uuid)) {
-            update_detection_state(RAVEN_GUNSHOT);
+            update_detection_state(RAVEN);
             // Raven device detected! Get firmware version estimate
             const char* fw_version = estimate_raven_firmware_version(advertisedDevice);
             const char* service_desc = get_raven_service_description(detected_service_uuid);
@@ -1036,23 +1266,23 @@ void loop()
             doc["protocol"] = "bluetooth_le";
             doc["detection_method"] = "test_console";
             doc["alert_level"] = "HIGH";
-            doc["device_category"] = "AXON_SYSTEM";
+            doc["device_category"] = "AXON";
             doc["mac_address"] = "00:25:df:aa:bb:cc";
             doc["device_name"] = "Axon Body 3";
             doc["rssi"] = -55;
             doc["signal_strength"] = "STRONG";
             doc["threat_score"] = 95;
             doc["vendor_oui"] = "00:25:df";
-            doc["manufacturer"] = "Axon Enterprise, Inc.";
+            doc["manufacturer"] = "Axon Enterprise";
             doc["test_mode"] = true;
-            
+
             String json_output;
             serializeJson(doc, json_output);
             Serial.println(json_output);
             send_notification(json_output);
-            
+
             // Update detection state
-            update_detection_state(AXON_SYSTEM);
+            update_detection_state(AXON);
             last_rssi = -55;
             
             printf("[TEST] Axon detection simulated successfully\n\n");
@@ -1066,9 +1296,9 @@ void loop()
     // LED CONTROL LOGIC (RGB)
     // ===================================
     if (device_in_range) {
-        
+
         switch (current_detection_type) {
-            case RAVEN_GUNSHOT:
+            case RAVEN:
                 // CRITICAL PRIORITY: RAVEN / GUNSHOT DETECTION
                 // FAST RED STROBE (50ms ON/OFF)
                 if ((now % 100) < 50) {
@@ -1078,7 +1308,7 @@ void loop()
                 }
                 break;
 
-            case AXON_SYSTEM:
+            case AXON:
                 // HIGH PRIORITY: AXON / POLICE SYSTEMS
                 // BLUE/RED POLICE STROBE
                 if ((now % 200) < 100) {
@@ -1088,17 +1318,7 @@ void loop()
                 }
                 break;
 
-            case BLE_CAMERA:
-                // HIGH PRIORITY: BLE CAMERA
-                // PURPLE BLINK (100ms ON/OFF)
-                if ((now % 200) < 100) {
-                    pixel.setPixelColor(0, pixel.Color(255, 0, 255)); // PURPLE
-                } else {
-                    pixel.setPixelColor(0, pixel.Color(0, 0, 0));
-                }
-                break;
-
-            case RING_DEVICE:
+            case RING:
                 // MEDIUM PRIORITY: RING DEVICES
                 // CYAN BLINK (300ms ON/300ms OFF)
                 if ((now % 600) < 300) {
@@ -1108,9 +1328,18 @@ void loop()
                 }
                 break;
 
-            case DRONE_CONSUMER:
-            case DRONE_COMMERCIAL:
-                // LOW PRIORITY: DRONES
+            case CRADLEPOINT:
+                // MEDIUM PRIORITY: NETWORK EQUIPMENT (used in surveillance)
+                // GREEN BLINK (400ms ON/400ms OFF)
+                if ((now % 800) < 400) {
+                    pixel.setPixelColor(0, pixel.Color(0, 255, 0)); // GREEN
+                } else {
+                    pixel.setPixelColor(0, pixel.Color(0, 0, 0));
+                }
+                break;
+
+            case DRONE:
+                // LOW PRIORITY: DRONES (DJI, Parrot, Skydio)
                 // YELLOW SLOW BLINK (500ms ON/500ms OFF)
                 if ((now % 1000) < 500) {
                     pixel.setPixelColor(0, pixel.Color(255, 255, 0)); // YELLOW
@@ -1119,9 +1348,9 @@ void loop()
                 }
                 break;
 
-            case WIFI_CAMERA:
+            case FLOCK_SAFETY:
             default:
-                // MEDIUM PRIORITY: WIFI CAMERA
+                // HIGH PRIORITY: FLOCK SAFETY
                 // ORANGE BLINK (200ms ON/200ms OFF)
                 if ((now % 400) < 200) {
                     pixel.setPixelColor(0, pixel.Color(255, 140, 0)); // ORANGE

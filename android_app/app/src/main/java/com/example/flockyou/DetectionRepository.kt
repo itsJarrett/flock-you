@@ -13,7 +13,11 @@ data class DetectionInfo(
     var lastSeen: Long = 0,
     var lastRssi: Int = 0,
     var lastLat: Double? = null,
-    var lastLon: Double? = null
+    var lastLon: Double? = null,
+    var manufacturer: String? = null,
+    var deviceName: String? = null,
+    var deviceCategory: String? = null,
+    var threatLevel: String? = null
 )
 
 object DetectionRepository {
@@ -55,7 +59,11 @@ object DetectionRepository {
                         lastSeen = obj.optLong("lastSeen", 0),
                         lastRssi = obj.optInt("lastRssi", 0),
                         lastLat = if (obj.has("lastLat")) obj.getDouble("lastLat") else null,
-                        lastLon = if (obj.has("lastLon")) obj.getDouble("lastLon") else null
+                        lastLon = if (obj.has("lastLon")) obj.getDouble("lastLon") else null,
+                        manufacturer = if (obj.has("manufacturer")) obj.getString("manufacturer") else null,
+                        deviceName = if (obj.has("deviceName")) obj.getString("deviceName") else null,
+                        deviceCategory = if (obj.has("deviceCategory")) obj.getString("deviceCategory") else null,
+                        threatLevel = if (obj.has("threatLevel")) obj.getString("threatLevel") else null
                     )
                     detections[mac] = info
                 }
@@ -77,6 +85,10 @@ object DetectionRepository {
                 obj.put("lastRssi", info.lastRssi)
                 info.lastLat?.let { obj.put("lastLat", it) }
                 info.lastLon?.let { obj.put("lastLon", it) }
+                info.manufacturer?.let { obj.put("manufacturer", it) }
+                info.deviceName?.let { obj.put("deviceName", it) }
+                info.deviceCategory?.let { obj.put("deviceCategory", it) }
+                info.threatLevel?.let { obj.put("threatLevel", it) }
                 jsonArray.put(obj)
             }
             val file = File(context.filesDir, "detections.json")
@@ -86,16 +98,30 @@ object DetectionRepository {
         }
     }
 
-    fun addDetection(mac: String, rssi: Int, location: Location?): DetectionInfo {
-        val info = detections.getOrPut(mac) { 
-             DetectionInfo(mac, firstSeen = System.currentTimeMillis()) 
+    fun addDetection(
+        mac: String,
+        rssi: Int,
+        location: Location?,
+        manufacturer: String? = null,
+        deviceName: String? = null,
+        deviceCategory: String? = null,
+        threatLevel: String? = null
+    ): DetectionInfo {
+        val info = detections.getOrPut(mac) {
+             DetectionInfo(mac, firstSeen = System.currentTimeMillis())
         }
-        
+
         // Update stats
         info.count++
         info.lastSeen = System.currentTimeMillis()
         info.lastRssi = rssi
-        
+
+        // Update device metadata (only if provided)
+        manufacturer?.let { info.manufacturer = it }
+        deviceName?.let { info.deviceName = it }
+        deviceCategory?.let { info.deviceCategory = it }
+        threatLevel?.let { info.threatLevel = it }
+
         // Update session stats
         if (sessionDetections.add(mac)) {
             sessionTotalCount++
@@ -108,7 +134,7 @@ object DetectionRepository {
             info.lastLat = it.latitude
             info.lastLon = it.longitude
         }
-        
+
         notifyListeners()
         return info
     }

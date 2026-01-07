@@ -1,0 +1,281 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="12dp"
+    android:background="@android:color/white"
+    android:minWidth="280dp"
+    android:clickable="true"
+    android:focusable="true">
+
+    <!-- Header with title and close button -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:id="@+id/infoWindowTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:textColor="@android:color/black" />
+
+        <TextView
+            android:id="@+id/infoWindowClose"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:text="✕"
+            android:textSize="20sp"
+            android:textColor="#666666"
+            android:gravity="center"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless" />
+    </LinearLayout>
+
+    <!-- Divider -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#E0E0E0"
+        android:layout_marginBottom="8dp" />
+
+    <!-- MAC Address -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingBottom="4dp">
+        <TextView
+            android:layout_width="100dp"
+            android:layout_height="wrap_content"
+            android:text="MAC:"
+            android:textStyle="bold"
+            android:textSize="13sp"
+            android:textColor="#666666" />
+        <TextView
+            android:id="@+id/infoWindowMac"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="13sp"
+            android:textColor="@android:color/black"
+            android:fontFamily="monospace" />
+    </LinearLayout>
+
+    <!-- Manufacturer -->
+    <LinearLayout
+        android:id="@+id/manufacturerRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingBottom="4dp">
+        <TextView
+            android:layout_width="100dp"
+            android:layout_height="wrap_content"
+            android:text="Manufacturer:"
+            android:textStyle="bold"
+            android:textSize="13sp"
+            android:textColor="#666666" />
+        <TextView
+            android:id="@+id/infoWindowManufacturer"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="13sp"
+            android:textColor="@android:color/black" />
+    </LinearLayout>
+
+    <!-- Device Name -->
+    <LinearLayout
+        android:id="@+id/deviceNameRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingBottom="4dp">
+        <TextView
+            android:layout_width="100dp"
+            android:layout_height="wrap_content"
+            android:text="Name:"
+            android:textStyle="bold"
+            android:textSize="13sp"
+            android:textColor="#666666" />
+        <TextView
+            android:id="@+id/infoWindowDeviceName"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="13sp"
+            android:textColor="@android:color/black" />
+    </LinearLayout>
+
+    <!-- Category -->
+    <LinearLayout
+        android:id="@+id/categoryRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingBottom="4dp">
+        <TextView
+            android:layout_width="100dp"
+            android:layout_height="wrap_content"
+            android:text="Category:"
+            android:textStyle="bold"
+            android:textSize="13sp"
+            android:textColor="#666666" />
+        <TextView
+            android:id="@+id/infoWindowCategory"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="13sp"
+            android:textColor="@android:color/black" />
+    </LinearLayout>
+
+    <!-- Threat Level -->
+    <LinearLayout
+        android:id="@+id/threatLevelRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingBottom="4dp">
+        <TextView
+            android:layout_width="100dp"
+            android:layout_height="wrap_content"
+            android:text="Threat Level:"
+            android:textStyle="bold"
+            android:textSize="13sp"
+            android:textColor="#666666" />
+        <TextView
+            android:id="@+id/infoWindowThreatLevel"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- Divider -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#E0E0E0"
+        android:layout_marginTop="4dp"
+        android:layout_marginBottom="8dp" />
+
+    <!-- RSSI -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingBottom="4dp">
+        <TextView
+            android:layout_width="100dp"
+            android:layout_height="wrap_content"
+            android:text="Signal (RSSI):"
+            android:textStyle="bold"
+            android:textSize="13sp"
+            android:textColor="#666666" />
+        <TextView
+            android:id="@+id/infoWindowRssi"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="13sp"
+            android:textColor="@android:color/black" />
+    </LinearLayout>
+
+    <!-- Detection Count -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingBottom="4dp">
+        <TextView
+            android:layout_width="100dp"
+            android:layout_height="wrap_content"
+            android:text="Detections:"
+            android:textStyle="bold"
+            android:textSize="13sp"
+            android:textColor="#666666" />
+        <TextView
+            android:id="@+id/infoWindowCount"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="13sp"
+            android:textColor="@android:color/black" />
+    </LinearLayout>
+
+    <!-- First Seen -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingBottom="4dp">
+        <TextView
+            android:layout_width="100dp"
+            android:layout_height="wrap_content"
+            android:text="First Seen:"
+            android:textStyle="bold"
+            android:textSize="13sp"
+            android:textColor="#666666" />
+        <TextView
+            android:id="@+id/infoWindowFirstSeen"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="13sp"
+            android:textColor="@android:color/black" />
+    </LinearLayout>
+
+    <!-- Last Seen -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingBottom="4dp">
+        <TextView
+            android:layout_width="100dp"
+            android:layout_height="wrap_content"
+            android:text="Last Seen:"
+            android:textStyle="bold"
+            android:textSize="13sp"
+            android:textColor="#666666" />
+        <TextView
+            android:id="@+id/infoWindowLastSeen"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="13sp"
+            android:textColor="@android:color/black" />
+    </LinearLayout>
+
+    <!-- GPS Coordinates -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+        <TextView
+            android:layout_width="100dp"
+            android:layout_height="wrap_content"
+            android:text="GPS:"
+            android:textStyle="bold"
+            android:textSize="13sp"
+            android:textColor="#666666" />
+        <TextView
+            android:id="@+id/infoWindowGps"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="12sp"
+            android:textColor="#888888"
+            android:fontFamily="monospace" />
+    </LinearLayout>
+
+</LinearLayout>
