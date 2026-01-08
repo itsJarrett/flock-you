@@ -118,6 +118,12 @@ static const char* wifi_ssid_patterns[] = {
     "Cradlepoint", "cradlepoint",
     "CP ",              // Cradlepoint prefix
 
+    // Aruba Networks
+    "Aruba", "aruba",
+    "instant",          // Aruba Instant
+    "SetMeUp",          // Aruba SetMeUp
+    "Aruba-Instant",    // Aruba Instant SSID
+
     // DJI Drones
     "DJI", "dji",
     "Mavic",
@@ -180,6 +186,17 @@ static const char* flock_safety_ouis[] = {
 // They should be detected and correctly identified as "Cradlepoint" manufacturer
 static const char* cradlepoint_ouis[] = {
     "00:30:44", "00:e0:1c"
+};
+
+// ARUBA NETWORKS (HPE)
+static const char* aruba_ouis[] = {
+    "00:0b:86", // Aruba Networks
+    "00:1a:1e", // Aruba Networks
+    "d8:c7:c8", // Aruba Networks
+    "ac:a3:1e", // Aruba Networks
+    "24:de:c6", // Aruba Networks (HPE)
+    "94:b4:0f", // Aruba Networks
+    "f4:2e:7f"  // Aruba Networks (HPE)
 };
 
 // AXON ENTERPRISE (Law Enforcement Body Cameras)
@@ -256,6 +273,9 @@ static const char* mac_prefixes[] = {
     // Cradlepoint (Network Equipment used by surveillance systems)
     "00:30:44", "00:e0:1c",
 
+    // Aruba Networks (HPE)
+    "00:0b:86", "00:1a:1e", "d8:c7:c8", "ac:a3:1e", "24:de:c6", "94:b4:0f", "f4:2e:7f",
+
     // Axon
     "00:25:df",
 
@@ -302,6 +322,10 @@ static const char* device_name_patterns[] = {
     "Cradlepoint",     // Cradlepoint routers
     "IBR",             // Cradlepoint IBR series
     "AER",             // Cradlepoint AER series
+
+    // Aruba Networks
+    "Aruba",           // Aruba devices
+    "Instant",         // Aruba Instant
 
     // DJI Drones
     "DJI",             // DJI drones
@@ -383,7 +407,8 @@ enum DetectionType {
     ARLO = 8,
     EUFY = 9,
     WYZE = 10,
-    BLINK = 11
+    BLINK = 11,
+    ARUBA = 12
 };
 
 static DetectionType current_detection_type = NONE;
@@ -579,6 +604,10 @@ void output_wifi_detection_json(const char* ssid, const uint8_t* mac, int rssi, 
         else if (strcasestr(ssid, "cradlepoint") || strcasestr(ssid, "cp ")) {
             resolved_type = CRADLEPOINT;
         }
+        // Check Aruba
+        else if (strcasestr(ssid, "aruba") || strcasestr(ssid, "instant") || strcasestr(ssid, "setmeup")) {
+            resolved_type = ARUBA;
+        }
         // Check Drones (DJI, Parrot, Skydio)
         else if (strcasestr(ssid, "dji") || strcasestr(ssid, "mavic") || strcasestr(ssid, "phantom") ||
                  strcasestr(ssid, "mini") || strcasestr(ssid, "air") || strcasestr(ssid, "fpv") ||
@@ -647,6 +676,7 @@ void output_wifi_detection_json(const char* ssid, const uint8_t* mac, int rssi, 
         case RAVEN: device_category_str = "RAVEN"; break;
         case RING: device_category_str = "RING"; break;
         case CRADLEPOINT: device_category_str = "CRADLEPOINT"; break;
+        case ARUBA: device_category_str = "ARUBA"; break;
         case DRONE: device_category_str = "DRONE"; break;
         default: device_category_str = "UNKNOWN"; break;
     }
@@ -742,6 +772,10 @@ void output_ble_detection_json(const char* mac, const char* name, int rssi, cons
         else if (strcasestr(name, "cradlepoint") || strcasestr(name, "ibr") || strcasestr(name, "aer")) {
             resolved_type = CRADLEPOINT;
         }
+        // Check Aruba (network equipment)
+        else if (strcasestr(name, "aruba") || strcasestr(name, "instant")) {
+            resolved_type = ARUBA;
+        }
         // Check Drones (DJI, Parrot, Skydio)
         else if (strcasestr(name, "dji") || strcasestr(name, "mavic") || strcasestr(name, "phantom") ||
                  strcasestr(name, "mini") || strcasestr(name, "air") || strcasestr(name, "fpv") ||
@@ -791,6 +825,7 @@ void output_ble_detection_json(const char* mac, const char* name, int rssi, cons
         case RAVEN: device_category_str = "RAVEN"; break;
         case RING: device_category_str = "RING"; break;
         case CRADLEPOINT: device_category_str = "CRADLEPOINT"; break;
+        case ARUBA: device_category_str = "ARUBA"; break;
         case DRONE: device_category_str = "DRONE"; break;
         default: device_category_str = "UNKNOWN"; break;
     }
@@ -920,6 +955,13 @@ DetectionType categorize_by_mac(const char* mac_prefix)
         }
     }
 
+    // Check Aruba
+    for (int i = 0; i < sizeof(aruba_ouis)/sizeof(aruba_ouis[0]); i++) {
+        if (strncasecmp(mac_prefix, aruba_ouis[i], 8) == 0) {
+            return ARUBA;
+        }
+    }
+
     // Check Flock Safety
     for (int i = 0; i < sizeof(flock_safety_ouis)/sizeof(flock_safety_ouis[0]); i++) {
         if (strncasecmp(mac_prefix, flock_safety_ouis[i], 8) == 0) {
@@ -1002,6 +1044,9 @@ const char* get_manufacturer_name(const char* mac_prefix)
     }
     for (int i = 0; i < sizeof(cradlepoint_ouis)/sizeof(cradlepoint_ouis[0]); i++) {
         if (strncasecmp(mac_prefix, cradlepoint_ouis[i], 8) == 0) return "Cradlepoint";
+    }
+    for (int i = 0; i < sizeof(aruba_ouis)/sizeof(aruba_ouis[0]); i++) {
+        if (strncasecmp(mac_prefix, aruba_ouis[i], 8) == 0) return "Aruba Networks";
     }
     for (int i = 0; i < sizeof(flock_safety_ouis)/sizeof(flock_safety_ouis[0]); i++) {
         if (strncasecmp(mac_prefix, flock_safety_ouis[i], 8) == 0) return "Flock Safety";
@@ -1623,6 +1668,16 @@ void loop()
                 // GREEN BLINK (400ms ON/400ms OFF)
                 if ((now % 800) < 400) {
                     pixel.setPixelColor(0, pixel.Color(0, 255, 0)); // GREEN
+                } else {
+                    pixel.setPixelColor(0, pixel.Color(0, 0, 0));
+                }
+                break;
+
+            case ARUBA:
+                // MEDIUM PRIORITY: ARUBA NETWORKS
+                // MAGENTA BLINK (400ms ON/400ms OFF)
+                if ((now % 800) < 400) {
+                    pixel.setPixelColor(0, pixel.Color(255, 0, 255)); // MAGENTA
                 } else {
                     pixel.setPixelColor(0, pixel.Color(0, 0, 0));
                 }
