@@ -4,19 +4,18 @@ plugins {
 }
 
 android {
-    namespace = "com.example.flockyou"
-    compileSdk = 34
+    namespace = "github.itsjarrett.flockyou"
+    compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.example.flockyou"
+        applicationId = "github.itsjarrett.flockyou"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 35
         versionCode = 1
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
-
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -43,7 +42,7 @@ dependencies {
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("org.osmdroid:osmdroid-android:6.1.18")
-    implementation("androidx.car.app:app:1.4.0")
+    implementation("androidx.car.app:app:1.7.0")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")

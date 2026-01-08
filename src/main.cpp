@@ -14,6 +14,9 @@
 #include "esp_wifi.h"
 #include "esp_wifi_types.h"
 
+// Mutex to protect BLE notifications
+SemaphoreHandle_t bleMutex = NULL;
+
 // ============================================================================
 // CONFIGURATION
 // ============================================================================
@@ -39,10 +42,26 @@ Adafruit_NeoPixel pixel(NUMPIXELS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
 #define BLE_SCAN_INTERVAL 5000 // Milliseconds between scans
 static unsigned long last_ble_scan = 0;
 
+// Detection Debouncing Configuration
+#define DEBOUNCE_WINDOW_MS 30000  // Don't re-alert same device within 30 seconds
+#define MAX_SEEN_DEVICES 50       // Cache size for debouncing
+
 // Detection Pattern Limits
 #define MAX_SSID_PATTERNS 10
 #define MAX_MAC_PATTERNS 50
 #define MAX_DEVICE_NAMES 20
+
+// ============================================================================
+// DETECTION DEBOUNCE CACHE
+// ============================================================================
+struct SeenDevice {
+    char mac[18];           // MAC address string
+    unsigned long lastSeen; // millis() timestamp
+    int detectionCount;     // How many times seen
+};
+
+static SeenDevice seenDevices[MAX_SEEN_DEVICES];
+static int seenDeviceCount = 0;
 
 // ============================================================================
 // DETECTION PATTERNS (Extracted from Real Flock Safety Device Databases)
@@ -115,7 +134,27 @@ static const char* wifi_ssid_patterns[] = {
 
     // Skydio Drones
     "Skydio", "skydio",
-    "SKYDIO"
+    "SKYDIO",
+
+    // Nest/Google Cameras
+    "Nest", "nest",
+    "Google Nest",
+
+    // Arlo Cameras
+    "Arlo", "arlo",
+    "VMC",              // Arlo model prefix
+
+    // Eufy Cameras
+    "Eufy", "eufy",
+    "eufyCam",
+    "SoloCam",
+
+    // Wyze Cameras
+    "Wyze", "wyze",
+    "WYZE",
+
+    // Blink Cameras
+    "Blink", "blink"
 };
 
 // ============================================================================
@@ -170,6 +209,38 @@ static const char* parrot_ouis[] = {
 // SKYDIO (Commercial & Enterprise Drones)
 static const char* skydio_ouis[] = {
     "38:1d:14"
+};
+
+// NEST/GOOGLE (Security Cameras & Doorbells)
+static const char* nest_ouis[] = {
+    "18:b4:30", "1c:f2:9a", "44:07:0b", "54:60:09",
+    "64:16:66", "94:94:26", "98:d2:93", "ac:0d:1a",
+    "d4:a9:28", "e8:eb:11", "f4:f5:d8", "f4:f5:e8"
+};
+
+// ARLO (Security Cameras)
+static const char* arlo_ouis[] = {
+    "00:1a:3a", "20:df:b9", "28:b4:66", "3c:37:86",
+    "44:6c:24", "6c:b0:ce", "84:d6:d0", "9c:53:22",
+    "a0:c5:89", "c4:04:15", "c4:41:1e"
+};
+
+// EUFY (Security Cameras & Doorbells)
+static const char* eufy_ouis[] = {
+    "10:d7:b0", "18:3a:2d", "1c:1b:68", "48:a9:d2",
+    "60:fd:a8", "74:fe:ce", "78:02:b1", "a4:3b:fa",
+    "ac:c1:ee", "d4:a6:51"
+};
+
+// WYZE (Budget Security Cameras)
+static const char* wyze_ouis[] = {
+    "2c:aa:8e", "d0:3f:27", "7c:78:b2", "8c:4b:14"
+};
+
+// BLINK (Amazon Security Cameras)
+static const char* blink_ouis[] = {
+    "18:e7:4a", "24:62:ab", "34:4b:50", "44:91:60",
+    "68:9c:70", "74:6f:f7", "b4:7c:9c"
 };
 
 // Combined list for quick iteration (legacy compatibility)
@@ -307,7 +378,12 @@ enum DetectionType {
     RAVEN = 3,
     RING = 4,
     CRADLEPOINT = 5,
-    DRONE = 6
+    DRONE = 6,
+    NEST_GOOGLE = 7,
+    ARLO = 8,
+    EUFY = 9,
+    WYZE = 10,
+    BLINK = 11
 };
 
 static DetectionType current_detection_type = NONE;
@@ -322,6 +398,75 @@ static NimBLEScan* pBLEScan;
 static NimBLEServer* pServer = NULL;
 static NimBLECharacteristic* pTxCharacteristic = NULL;
 static bool deviceConnected = false;
+
+// Session statistics
+static unsigned long session_start_time = 0;
+static int total_wifi_detections = 0;
+static int total_ble_detections = 0;
+static int unique_devices_seen = 0;
+
+// ============================================================================
+// DEBOUNCE HELPER FUNCTIONS
+// ============================================================================
+
+// Check if device was recently seen (returns true if should be debounced/skipped)
+bool isDeviceDebounced(const char* mac) {
+    unsigned long now = millis();
+    
+    // Search for existing entry
+    for (int i = 0; i < seenDeviceCount; i++) {
+        if (strcasecmp(seenDevices[i].mac, mac) == 0) {
+            // Found it - check if within debounce window
+            if (now - seenDevices[i].lastSeen < DEBOUNCE_WINDOW_MS) {
+                seenDevices[i].detectionCount++;
+                seenDevices[i].lastSeen = now;
+                return true;  // Debounce - skip alert
+            } else {
+                // Expired - update timestamp and allow alert
+                seenDevices[i].lastSeen = now;
+                seenDevices[i].detectionCount++;
+                return false;
+            }
+        }
+    }
+    
+    // New device - add to cache
+    if (seenDeviceCount < MAX_SEEN_DEVICES) {
+        strncpy(seenDevices[seenDeviceCount].mac, mac, 17);
+        seenDevices[seenDeviceCount].mac[17] = '\0';
+        seenDevices[seenDeviceCount].lastSeen = now;
+        seenDevices[seenDeviceCount].detectionCount = 1;
+        seenDeviceCount++;
+        unique_devices_seen++;
+    } else {
+        // Cache full - find oldest entry and replace
+        int oldestIdx = 0;
+        unsigned long oldestTime = seenDevices[0].lastSeen;
+        for (int i = 1; i < MAX_SEEN_DEVICES; i++) {
+            if (seenDevices[i].lastSeen < oldestTime) {
+                oldestTime = seenDevices[i].lastSeen;
+                oldestIdx = i;
+            }
+        }
+        strncpy(seenDevices[oldestIdx].mac, mac, 17);
+        seenDevices[oldestIdx].mac[17] = '\0';
+        seenDevices[oldestIdx].lastSeen = now;
+        seenDevices[oldestIdx].detectionCount = 1;
+        unique_devices_seen++;
+    }
+    
+    return false;  // New device - allow alert
+}
+
+// Get detection count for a device
+int getDeviceDetectionCount(const char* mac) {
+    for (int i = 0; i < seenDeviceCount; i++) {
+        if (strcasecmp(seenDevices[i].mac, mac) == 0) {
+            return seenDevices[i].detectionCount;
+        }
+    }
+    return 0;
+}
 
 // ============================================================================
 // FORWARD DECLARATIONS
@@ -348,6 +493,12 @@ class MyServerCallbacks: public NimBLEServerCallbacks {
 
 void send_notification(String message) {
     if (deviceConnected && pTxCharacteristic != NULL) {
+        // Take mutex to ensure atomic transmission
+        // unique_lock would be nicer but we are in C-ish land
+        if (bleMutex != NULL) {
+            xSemaphoreTake(bleMutex, portMAX_DELAY);
+        }
+
         // Append newline as delimiter
         message += "\n";
         
@@ -368,6 +519,10 @@ void send_notification(String message) {
             delay(5); // Small delay to prevent congestion
         }
         printf("Notification sent (chunked): %d bytes\n", length);
+
+        if (bleMutex != NULL) {
+            xSemaphoreGive(bleMutex);
+        }
     }
 }
 
@@ -800,6 +955,41 @@ DetectionType categorize_by_mac(const char* mac_prefix)
         }
     }
 
+    // Check Nest/Google
+    for (int i = 0; i < sizeof(nest_ouis)/sizeof(nest_ouis[0]); i++) {
+        if (strncasecmp(mac_prefix, nest_ouis[i], 8) == 0) {
+            return NEST_GOOGLE;
+        }
+    }
+
+    // Check Arlo
+    for (int i = 0; i < sizeof(arlo_ouis)/sizeof(arlo_ouis[0]); i++) {
+        if (strncasecmp(mac_prefix, arlo_ouis[i], 8) == 0) {
+            return ARLO;
+        }
+    }
+
+    // Check Eufy
+    for (int i = 0; i < sizeof(eufy_ouis)/sizeof(eufy_ouis[0]); i++) {
+        if (strncasecmp(mac_prefix, eufy_ouis[i], 8) == 0) {
+            return EUFY;
+        }
+    }
+
+    // Check Wyze
+    for (int i = 0; i < sizeof(wyze_ouis)/sizeof(wyze_ouis[0]); i++) {
+        if (strncasecmp(mac_prefix, wyze_ouis[i], 8) == 0) {
+            return WYZE;
+        }
+    }
+
+    // Check Blink
+    for (int i = 0; i < sizeof(blink_ouis)/sizeof(blink_ouis[0]); i++) {
+        if (strncasecmp(mac_prefix, blink_ouis[i], 8) == 0) {
+            return BLINK;
+        }
+    }
+
     return NONE;
 }
 
@@ -827,6 +1017,21 @@ const char* get_manufacturer_name(const char* mac_prefix)
     }
     for (int i = 0; i < sizeof(skydio_ouis)/sizeof(skydio_ouis[0]); i++) {
         if (strncasecmp(mac_prefix, skydio_ouis[i], 8) == 0) return "Skydio";
+    }
+    for (int i = 0; i < sizeof(nest_ouis)/sizeof(nest_ouis[0]); i++) {
+        if (strncasecmp(mac_prefix, nest_ouis[i], 8) == 0) return "Nest/Google";
+    }
+    for (int i = 0; i < sizeof(arlo_ouis)/sizeof(arlo_ouis[0]); i++) {
+        if (strncasecmp(mac_prefix, arlo_ouis[i], 8) == 0) return "Arlo";
+    }
+    for (int i = 0; i < sizeof(eufy_ouis)/sizeof(eufy_ouis[0]); i++) {
+        if (strncasecmp(mac_prefix, eufy_ouis[i], 8) == 0) return "Eufy";
+    }
+    for (int i = 0; i < sizeof(wyze_ouis)/sizeof(wyze_ouis[0]); i++) {
+        if (strncasecmp(mac_prefix, wyze_ouis[i], 8) == 0) return "Wyze";
+    }
+    for (int i = 0; i < sizeof(blink_ouis)/sizeof(blink_ouis[0]); i++) {
+        if (strncasecmp(mac_prefix, blink_ouis[i], 8) == 0) return "Blink/Amazon";
     }
     return "Unknown";
 }
@@ -1171,6 +1376,16 @@ void hop_channel()
 void setup()
 {
     Serial.begin(115200);
+    
+    // Create mutex for thread-safe BLE notifications
+    bleMutex = xSemaphoreCreateMutex();
+
+    // Initialize session tracking
+    session_start_time = millis();
+    
+    // Initialize debounce cache
+    memset(seenDevices, 0, sizeof(seenDevices));
+    seenDeviceCount = 0;
 
     // Initialize RGB LED
     pixel.begin();
@@ -1186,6 +1401,7 @@ void setup()
     }
     
     printf("Starting Flock Squawk Enhanced Detection System...\n\n");
+    printf("Type 'help' for available serial commands\n\n");
     
     // Initialize WiFi in promiscuous mode
     WiFi.mode(WIFI_STA);
@@ -1249,14 +1465,15 @@ void loop()
     unsigned long now = millis();
 
     // ===================================
-    // SERIAL COMMAND HANDLER (Simulate Axon)
+    // SERIAL COMMAND HANDLER
     // ===================================
     if (Serial.available() > 0) {
         String cmd = Serial.readStringUntil('\n');
         cmd.trim();
-        cmd.toLowerCase();
+        String cmdLower = cmd;
+        cmdLower.toLowerCase();
         
-        if (cmd == "test" || cmd == "axon") {
+        if (cmdLower == "test" || cmdLower == "axon") {
             printf("\n[TEST] Simulating Axon Body Cam detection...\n");
             
             // Create fake Axon BLE detection
@@ -1286,9 +1503,82 @@ void loop()
             last_rssi = -55;
             
             printf("[TEST] Axon detection simulated successfully\n\n");
-        } else if (cmd.length() > 0) {
+            
+        } else if (cmdLower == "status") {
+            // Display current status
+            unsigned long uptime = millis() / 1000;
+            printf("\n========== FLOCK-YOU STATUS ==========\n");
+            printf("Uptime: %lu seconds\n", uptime);
+            printf("Session start: %lu ms ago\n", millis() - session_start_time);
+            printf("WiFi Channel: %d / %d\n", current_channel, MAX_CHANNEL);
+            printf("BLE Connected: %s\n", deviceConnected ? "YES" : "NO");
+            printf("Device in range: %s\n", device_in_range ? "YES" : "NO");
+            printf("Current detection: %d\n", current_detection_type);
+            printf("Last RSSI: %d dBm\n", last_rssi);
+            printf("\n--- Detection Stats ---\n");
+            printf("Total WiFi detections: %d\n", total_wifi_detections);
+            printf("Total BLE detections: %d\n", total_ble_detections);
+            printf("Unique devices seen: %d\n", unique_devices_seen);
+            printf("Debounce cache: %d / %d\n", seenDeviceCount, MAX_SEEN_DEVICES);
+            printf("\n--- Memory ---\n");
+            printf("Free heap: %d bytes\n", ESP.getFreeHeap());
+            printf("Min free heap: %d bytes\n", ESP.getMinFreeHeap());
+            printf("=======================================\n\n");
+            
+        } else if (cmdLower == "stats") {
+            // JSON stats output (for app consumption)
+            DynamicJsonDocument doc(1024);
+            doc["uptime_seconds"] = millis() / 1000;
+            doc["wifi_channel"] = current_channel;
+            doc["ble_connected"] = deviceConnected;
+            doc["device_in_range"] = device_in_range;
+            doc["current_detection"] = current_detection_type;
+            doc["last_rssi"] = last_rssi;
+            doc["total_wifi_detections"] = total_wifi_detections;
+            doc["total_ble_detections"] = total_ble_detections;
+            doc["unique_devices"] = unique_devices_seen;
+            doc["debounce_cache_size"] = seenDeviceCount;
+            doc["free_heap"] = ESP.getFreeHeap();
+            
+            String json_output;
+            serializeJson(doc, json_output);
+            Serial.println(json_output);
+            
+        } else if (cmdLower == "devices") {
+            // List seen devices
+            printf("\n========== SEEN DEVICES ==========\n");
+            for (int i = 0; i < seenDeviceCount; i++) {
+                unsigned long age = (millis() - seenDevices[i].lastSeen) / 1000;
+                printf("%d. %s - Count: %d, Last seen: %lu sec ago\n",
+                    i + 1,
+                    seenDevices[i].mac,
+                    seenDevices[i].detectionCount,
+                    age);
+            }
+            printf("==================================\n\n");
+            
+        } else if (cmdLower == "clear") {
+            // Clear debounce cache
+            seenDeviceCount = 0;
+            unique_devices_seen = 0;
+            total_wifi_detections = 0;
+            total_ble_detections = 0;
+            printf("[OK] Stats and debounce cache cleared\n");
+            
+        } else if (cmdLower == "help") {
+            printf("\n========== FLOCK-YOU COMMANDS ==========\n");
+            printf("status  - Show detailed system status\n");
+            printf("stats   - Output stats as JSON\n");
+            printf("devices - List recently seen devices\n");
+            printf("clear   - Clear detection cache and stats\n");
+            printf("test    - Simulate Axon detection\n");
+            printf("axon    - Simulate Axon detection\n");
+            printf("help    - Show this help message\n");
+            printf("=========================================\n\n");
+            
+        } else if (cmdLower.length() > 0) {
             printf("Unknown command: %s\n", cmd.c_str());
-            printf("Available commands: test, axon\n\n");
+            printf("Type 'help' for available commands\n\n");
         }
     }
 
@@ -1345,6 +1635,56 @@ void loop()
                     pixel.setPixelColor(0, pixel.Color(255, 255, 0)); // YELLOW
                 } else {
                     pixel.setPixelColor(0, pixel.Color(0, 0, 0));
+                }
+                break;
+
+            case NEST_GOOGLE:
+                // MEDIUM PRIORITY: NEST/GOOGLE CAMERAS
+                // WHITE BLINK (400ms ON/400ms OFF)
+                if ((now % 800) < 400) {
+                    pixel.setPixelColor(0, pixel.Color(255, 255, 255)); // WHITE
+                } else {
+                    pixel.setPixelColor(0, pixel.Color(0, 0, 0));
+                }
+                break;
+
+            case ARLO:
+                // MEDIUM PRIORITY: ARLO CAMERAS
+                // GREEN BLINK (400ms ON/400ms OFF)
+                if ((now % 800) < 400) {
+                    pixel.setPixelColor(0, pixel.Color(0, 255, 100)); // GREEN-TEAL
+                } else {
+                    pixel.setPixelColor(0, pixel.Color(0, 0, 0));
+                }
+                break;
+
+            case EUFY:
+                // MEDIUM PRIORITY: EUFY CAMERAS
+                // PINK BLINK (400ms ON/400ms OFF)
+                if ((now % 800) < 400) {
+                    pixel.setPixelColor(0, pixel.Color(255, 100, 200)); // PINK
+                } else {
+                    pixel.setPixelColor(0, pixel.Color(0, 0, 0));
+                }
+                break;
+
+            case WYZE:
+                // MEDIUM PRIORITY: WYZE CAMERAS
+                // LIGHT BLUE BLINK (400ms ON/400ms OFF)
+                if ((now % 800) < 400) {
+                    pixel.setPixelColor(0, pixel.Color(100, 200, 255)); // LIGHT BLUE
+                } else {
+                    pixel.setPixelColor(0, pixel.Color(0, 0, 0));
+                }
+                break;
+
+            case BLINK:
+                // MEDIUM PRIORITY: BLINK/AMAZON CAMERAS
+                // CYAN/WHITE ALTERNATING (300ms each)
+                if ((now % 600) < 300) {
+                    pixel.setPixelColor(0, pixel.Color(0, 255, 255)); // CYAN
+                } else {
+                    pixel.setPixelColor(0, pixel.Color(255, 255, 255)); // WHITE
                 }
                 break;
 
