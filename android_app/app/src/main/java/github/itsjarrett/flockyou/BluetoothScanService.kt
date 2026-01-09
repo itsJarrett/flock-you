@@ -33,6 +33,7 @@ class BluetoothScanService : Service(), LocationListener {
     private var locationManager: LocationManager? = null
     private var currentLocation: Location? = null
     private val dataBuffer = StringBuilder()
+    private val lastNotificationTime = mutableMapOf<String, Long>()
 
     // Callback interface for UI updates
     interface ServiceCallback {
@@ -436,6 +437,11 @@ class BluetoothScanService : Service(), LocationListener {
                     val countStr = "Count: ${info.count}"
                     val locStr = if (info.lastLat != null) "Loc: ${String.format("%.5f, %.5f", info.lastLat, info.lastLon)}" else "Loc: N/A"
 
+                    // Debounce notifications (1 minute cooldown per device)
+                    val currentTime = System.currentTimeMillis()
+                    val lastTime = lastNotificationTime[mac] ?: 0L
+                    val shouldNotify = currentTime - lastTime > 60000
+
                     if (protocol == "wifi") {
                         val ssid = json.optString("ssid", "Unknown")
                         val threatScore = json.optInt("threat_score", 0)
@@ -446,8 +452,12 @@ class BluetoothScanService : Service(), LocationListener {
                                   "Score: $threatScore\n" +
                                   "$countStr | $locStr"
                         log(msg)
-                        sendDetectionNotification(msg, category)
-                        callback?.onDeviceDetected(msg, category)
+                        
+                        if (shouldNotify) {
+                            lastNotificationTime[mac] = currentTime
+                            sendDetectionNotification(msg, category)
+                            callback?.onDeviceDetected(msg, category)
+                        }
                     } else if (protocol == "bluetooth_le") {
                         val name = json.optString("device_name", "Unknown")
                         val threatScore = json.optInt("threat_score", 0)
@@ -460,8 +470,12 @@ class BluetoothScanService : Service(), LocationListener {
                                   "Score: $threatScore\n" +
                                   "$countStr | $locStr"
                         log(msg)
-                        sendDetectionNotification(msg, category)
-                        callback?.onDeviceDetected(msg, category)
+                        
+                        if (shouldNotify) {
+                            lastNotificationTime[mac] = currentTime
+                            sendDetectionNotification(msg, category)
+                            callback?.onDeviceDetected(msg, category)
+                        }
                     }
                 }
             }

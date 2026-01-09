@@ -302,6 +302,7 @@ class MainActivity : AppCompatActivity(), LocationListener, TextToSpeech.OnInitL
 
     private val CHANNEL_ID = "flock_notifications"
     private val dataBuffer = StringBuilder()
+    private val lastNotificationTime = mutableMapOf<String, Long>()
 
     private fun processJsonMessage(jsonStr: String) {
         try {
@@ -350,6 +351,11 @@ class MainActivity : AppCompatActivity(), LocationListener, TextToSpeech.OnInitL
                     
                     val countStr = "Count: ${info.count}"
                     val locStr = if (info.lastLat != null) "Loc: ${String.format("%.5f, %.5f", info.lastLat, info.lastLon)}" else "Loc: N/A"
+
+                    // Debounce notifications (1 minute cooldown per device)
+                    val currentTime = System.currentTimeMillis()
+                    val lastTime = lastNotificationTime[mac] ?: 0L
+                    val shouldNotify = currentTime - lastTime > 60000
                     
                     if (protocol == "wifi") {
                         val ssid = json.optString("ssid", "Unknown")
@@ -361,8 +367,13 @@ class MainActivity : AppCompatActivity(), LocationListener, TextToSpeech.OnInitL
                                   "Score: $threatScore\n" +
                                   "$countStr | $locStr"
                         log(msg)
-                        sendNotification(msg, category)
-                        speakDetection(category)
+                        
+                        // Always log, but update notifications only on new detection (debounced)
+                        if (shouldNotify) {
+                            lastNotificationTime[mac] = currentTime
+                            sendNotification(msg, category)
+                            speakDetection(category)
+                        }
                     } else if (protocol == "bluetooth_le") {
                         val name = json.optString("device_name", "Unknown")
                         val threatScore = json.optInt("threat_score", 0)
@@ -375,8 +386,13 @@ class MainActivity : AppCompatActivity(), LocationListener, TextToSpeech.OnInitL
                                   "Score: $threatScore\n" +
                                   "$countStr | $locStr"
                         log(msg)
-                        sendNotification(msg, category)
-                        speakDetection(category)
+                        
+                        // Always log, but update notifications only on new detection (debounced)
+                        if (shouldNotify) {
+                            lastNotificationTime[mac] = currentTime
+                            sendNotification(msg, category)
+                            speakDetection(category)
+                        }
                     } else {
                         log("Unknown JSON message: $jsonStr")
                     }
@@ -989,6 +1005,9 @@ class MainActivity : AppCompatActivity(), LocationListener, TextToSpeech.OnInitL
         val mapEventsOverlay = MapEventsOverlay(mapEventsReceiver)
         mapView.overlays.add(0, mapEventsOverlay)  // Add at index 0 so it's below markers
 
+        // Do NOT enable MyLocationNewOverlay here as it requests location updates continuously
+        // We will manually update the current location marker in onLocationChanged
+        /*
         // Add MyLocation overlay with continuous tracking
         myLocationOverlay = MyLocationNewOverlay(GpsMyLocationProvider(this), mapView)
         myLocationOverlay?.enableMyLocation()
@@ -1004,6 +1023,7 @@ class MainActivity : AppCompatActivity(), LocationListener, TextToSpeech.OnInitL
         }
         
         mapView.overlays.add(myLocationOverlay)
+        */
         
         // Set initial center if location is already known
         currentLocation?.let {

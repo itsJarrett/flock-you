@@ -616,6 +616,26 @@ void output_wifi_detection_json(const char* ssid, const uint8_t* mac, int rssi, 
                  strcasestr(ssid, "disco") || strcasestr(ssid, "skydio")) {
             resolved_type = DRONE;
         }
+        // Check Nest/Google
+        else if (strcasestr(ssid, "nest") || strcasestr(ssid, "google")) {
+            resolved_type = NEST_GOOGLE;
+        }
+        // Check Arlo
+        else if (strcasestr(ssid, "arlo") || strcasestr(ssid, "vmc")) {
+            resolved_type = ARLO;
+        }
+        // Check Eufy
+        else if (strcasestr(ssid, "eufy") || strcasestr(ssid, "solocam")) {
+            resolved_type = EUFY;
+        }
+        // Check Wyze
+        else if (strcasestr(ssid, "wyze")) {
+            resolved_type = WYZE;
+        }
+        // Check Blink
+        else if (strcasestr(ssid, "blink")) {
+            resolved_type = BLINK;
+        }
         // Check Flock Safety (keep this last as it's most common)
         else if (strcasestr(ssid, "flock") || strcasestr(ssid, "falcon") ||
                  strcasestr(ssid, "penguin") || strcasestr(ssid, "pigvision") ||
@@ -624,10 +644,12 @@ void output_wifi_detection_json(const char* ssid, const uint8_t* mac, int rssi, 
         }
     }
 
-    // Fallback to Flock Safety if no specific match
+    // Default to NONE if no specific match (don't force Flock Safety)
+    /* 
     if (resolved_type == NONE) {
         resolved_type = FLOCK_SAFETY;
-    }
+    } 
+    */
 
     update_detection_state(resolved_type);
     last_rssi = rssi;
@@ -785,6 +807,26 @@ void output_ble_detection_json(const char* mac, const char* name, int rssi, cons
                  strcasestr(name, "s2") || strcasestr(name, "x2")) {
             resolved_type = DRONE;
         }
+        // Check Nest/Google
+        else if (strcasestr(name, "nest") || strcasestr(name, "google")) {
+            resolved_type = NEST_GOOGLE;
+        }
+        // Check Arlo
+        else if (strcasestr(name, "arlo") || strcasestr(name, "vmc")) {
+            resolved_type = ARLO;
+        }
+        // Check Eufy
+        else if (strcasestr(name, "eufy") || strcasestr(name, "solocam")) {
+            resolved_type = EUFY;
+        }
+        // Check Wyze
+        else if (strcasestr(name, "wyze")) {
+            resolved_type = WYZE;
+        }
+        // Check Blink
+        else if (strcasestr(name, "blink")) {
+            resolved_type = BLINK;
+        }
         // Check Flock Safety (surveillance cameras)
         else if (strcasestr(name, "flock") || strcasestr(name, "falcon") ||
                  strcasestr(name, "penguin") || strcasestr(name, "pigvision") ||
@@ -793,10 +835,12 @@ void output_ble_detection_json(const char* mac, const char* name, int rssi, cons
         }
     }
 
-    // Fallback to Flock Safety if no specific match
+    // Default to NONE if no specific match (don't force Flock Safety)
+    /*
     if (resolved_type == NONE) {
         resolved_type = FLOCK_SAFETY;
     }
+    */
 
     update_detection_state(resolved_type);
     last_rssi = rssi;
